@@ -1,0 +1,669 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Pre-Event Readiness Checklist</title>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.js"></script>
+<style>
+  :root{
+    --bg:#0f1420; --panel:#161c2c; --panel-2:#1d2438; --border:#2a3350; --fg:#e8ecf7; --fg-muted:#8a93ad;
+    --accent:#4f7cff; --good:#2fbf71; --flag:#e5484d; --pending:#aab2c8;
+  }
+  @media (prefers-color-scheme: light){
+    :root{ --bg:#f5f6fa; --panel:#ffffff; --panel-2:#f0f2f8; --border:#dde1ee; --fg:#1b2030; --fg-muted:#636d84;
+      --accent:#3a63e0; --good:#1f9c5a; --flag:#d13438; --pending:#8990a6; }
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--fg);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;}
+  #app{max-width:900px;margin:0 auto;padding:16px 16px 64px}
+  h1{font-size:1.3rem;margin:0}
+  h2{font-size:1.05rem;margin:0 0 8px}
+  .topbar{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:14px 0;border-bottom:1px solid var(--border);margin-bottom:16px}
+  .muted{color:var(--fg-muted);font-size:.85rem}
+  .btn{display:inline-flex;align-items:center;gap:6px;background:var(--accent);color:#fff;border:none;border-radius:8px;padding:8px 14px;font-size:.88rem;cursor:pointer}
+  .btn.secondary{background:var(--panel-2);color:var(--fg);border:1px solid var(--border)}
+  .btn.danger{background:var(--flag);color:#fff}
+  .btn:disabled{opacity:.45;cursor:not-allowed}
+  input[type=text],input[type=date],input[type=email],textarea{
+    width:100%;padding:8px 10px;border-radius:7px;border:1px solid var(--border);background:var(--panel-2);color:var(--fg);font-size:.9rem;
+  }
+  label{font-size:.8rem;color:var(--fg-muted);display:block;margin-bottom:4px}
+  .field{margin-bottom:10px}
+  .card{background:var(--panel);border:1px solid var(--border);border-radius:12px;padding:14px;margin-bottom:12px}
+  .event-card{display:flex;align-items:center;justify-content:space-between;gap:12px;cursor:pointer}
+  .event-card:hover{border-color:var(--accent)}
+  .dept-chip-row{display:flex;flex-wrap:wrap;gap:6px;margin-top:6px}
+  .dept-chip{display:inline-flex;align-items:center;gap:5px;font-size:.78rem;border:1px solid var(--border);border-radius:999px;padding:3px 9px}
+  .dept-chip input{width:auto}
+  .dot{width:8px;height:8px;border-radius:50%;background:var(--pending);display:inline-block}
+  .dot.thumbsup{background:var(--good)} .dot.flag{background:var(--flag)}
+  .dept-card{border:1px solid var(--border);border-radius:10px;padding:12px;margin-bottom:10px}
+  .dept-card .head{display:flex;align-items:center;justify-content:space-between;gap:8px}
+  .badge{font-size:.72rem;border-radius:999px;padding:2px 9px;border:1px solid var(--border)}
+  .badge.thumbsup{background:rgba(47,191,113,.15);color:var(--good);border-color:var(--good)}
+  .badge.flag{background:rgba(229,72,77,.15);color:var(--flag);border-color:var(--flag)}
+  .badge.pending{color:var(--pending)}
+  .checklist-item{display:flex;align-items:center;gap:8px;padding:5px 0}
+  .checklist-item input[type=checkbox]{width:auto}
+  .row-actions{display:flex;gap:8px;margin-top:8px;flex-wrap:wrap}
+  .confirm-box{background:rgba(229,72,77,.08);border:1px solid var(--flag);border-radius:8px;padding:10px;margin-top:8px}
+  .toast{position:fixed;bottom:18px;left:50%;transform:translateX(-50%);background:var(--panel-2);border:1px solid var(--border);border-radius:8px;padding:9px 16px;font-size:.85rem;opacity:0;transition:opacity .2s;pointer-events:none}
+  .toast.show{opacity:1}
+  .roster-row{display:grid;grid-template-columns:1fr 1fr 1fr auto;gap:8px;align-items:end;margin-bottom:8px}
+  .series-section{border-top:1px dashed var(--border);padding-top:10px;margin-top:10px}
+  .link{color:var(--accent);cursor:pointer;background:none;border:none;font-size:.85rem;padding:0}
+  textarea{min-height:60px}
+</style>
+</head>
+<body>
+<div id="app"><p class="muted">Loading…</p></div>
+<div id="toast" class="toast"></div>
+
+<script>
+// ---------------- Config ----------------
+var SUPABASE_URL = "https://htddvcyexenhrfndhgwp.supabase.co";
+var SUPABASE_KEY = "sb_publishable_2PzXBJOfdrD-hv1Jm5kQ6Q_yhTNPr3-";
+var sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+
+// ---------------- Static config: departments & series ----------------
+var DEPTS = [
+  {key:"operations-competition", label:"Program Management", topics:[
+    "Contract deliverables defined and completed",
+    "Agreement signed, and any addendums completed and signed",
+    "All COIs requested and/or delivered"
+  ]},
+  {key:"operations", label:"Operations", topics:[
+    "Paddock layout finalized",
+    "Set-up crew readiness and plan confirmed",
+    "Track/site walk completed",
+    "Equipment load-in schedule confirmed"
+  ]},
+  {key:"race-control", label:"Race Control & Competition", topics:[
+    "Supplemental regulations finalized and distributed",
+    "Officials and race control crew confirmed and briefed",
+    "Timing & scoring system tested and ready",
+    "Grid, start procedure, and penalty structure confirmed"
+  ]},
+  {key:"safety-medical", label:"Safety & Medical", topics:[
+    "On-site medical/EMS coverage confirmed and contracted",
+    "Safety crew (corner workers, fire/rescue) staffed",
+    "Track safety inspection completed (barriers, run-off areas)",
+    "Emergency action plan reviewed and distributed"
+  ]},
+  {key:"logistics-equipment", label:"Logistics & Equipment", topics:[
+    "Timing/scoring and race control equipment shipped or on-site",
+    "Support vehicles, trailers, and generators confirmed",
+    "Venue/facility setup confirmed with track",
+    "Radios, signage, and course marking equipment ready"
+  ]},
+  {key:"entries-credentials", label:"Entries & Credentials", topics:[
+    "Entry list finalized and payments reconciled",
+    "Credentials and wristbands prepared for drivers, teams, guests",
+    "Technical inspection paperwork and car classing confirmed",
+    "Paddock and garage assignments finalized"
+  ]},
+  {key:"technical", label:"Technical", dynamicOwner:"technicalManager", topics:[
+    "Technical inspection / scrutineering plan confirmed",
+    "Technical delegate and inspectors assigned",
+    "Scales, data logging, and compliance equipment ready and calibrated",
+    "Post-session/podium inspection protocol confirmed",
+    "Technical bulletins and class/spec rules distributed"
+  ]},
+  {key:"staffing", label:"Staffing", dynamicOwner:"seriesManager", topics:[
+    "Race control and officiating roles fully staffed",
+    "Corner workers and flaggers scheduled and confirmed",
+    "Travel booked",
+    "Staff/volunteer travel and lodging arranged",
+    "Shift schedule and role assignments distributed"
+  ]},
+  {key:"customer-experience", label:"Customer Experience", topics:[
+    "Hospitality and VIP areas confirmed",
+    "Driver/team communications (schedule, logistics) sent",
+    "On-site signage and fan activation confirmed",
+    "Food, beverage, and amenities vendors confirmed"
+  ]},
+  {key:"event-prep-complete", label:"Event Prep Complete", final:true, topics:[
+    "All departments signed off and confirmed with thumbs up"
+  ]}
+];
+var SERIES = [
+  "Zenith Racing Series",
+  "Porsche Sprint Challenge North America",
+  "Porsche Endurance Challenge North America",
+  "Porsche Sprint Trophy",
+  "USAC - Test Days",
+  "Portfolio Programs",
+  "Ford Mustang Cup NA"
+];
+// Good to Go on the final department is restricted to these two names, plus
+// (checked separately) the event's own resolved series manager. UI-level
+// gate, matching the original app's intent -- not a hard security boundary.
+var GOOD_TO_GO_NAMES = ["jack hoaglin", "randy hembrey"];
+var DYNAMIC_OWNER_NOTES = {
+  seriesManager: "Point person is this event's Series Manager (set in the Series Managers admin panel below), not a fixed person.",
+  technicalManager: "Point person is this event's Technical Manager (set in the Technical Managers admin panel below) -- never falls back to the Series Manager."
+};
+
+// ---------------- State ----------------
+var state = {
+  session: null, appUser: null, canWrite: false, canAdmin: false,
+  events: [], checkpoints: {}, checklists: {},
+  departmentHeads: [], seriesManagers: [], technicalManagers: [], seriesProfiles: [],
+  view: "home", slug: null, editingSlug: null, pendingDeleteSlug: null, draftingDept: null
+};
+
+function toast(msg){
+  var t = document.getElementById("toast");
+  t.textContent = msg; t.classList.add("show");
+  clearTimeout(t._h); t._h = setTimeout(function(){ t.classList.remove("show"); }, 2600);
+}
+function esc(s){ return (s==null?"":String(s)).replace(/[&<>"']/g, function(c){ return {"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;"}[c]; }); }
+function setHash(h){ if(location.hash !== "#"+h) location.hash = h; else render(); }
+
+// ---------------- Series / department helpers ----------------
+function seriesListOf(ev){ return (ev && Array.isArray(ev.series)) ? ev.series.filter(Boolean) : []; }
+function profileFor(series){ return state.seriesProfiles.find(function(p){ return p.series === series; }); }
+function isDeptActiveForEvent(ev, deptKey){
+  var dep = DEPTS.find(function(d){ return d.key === deptKey; });
+  if(dep && dep.final) return true;
+  var list = seriesListOf(ev);
+  if(!list.length) return true;
+  return list.some(function(s){
+    var p = profileFor(s);
+    if(!p || !Array.isArray(p.active_depts)) return true;
+    return p.active_depts.indexOf(deptKey) !== -1;
+  });
+}
+function activeDeptsForEvent(ev){ return DEPTS.filter(function(d){ return isDeptActiveForEvent(ev, d.key); }); }
+function resolveSeriesPeople(ev, roster){
+  var list = seriesListOf(ev);
+  if(!list.length || !roster) return [];
+  var out = [], seen = {};
+  list.forEach(function(s){
+    var m = roster.find(function(x){ return x.series === s; });
+    if(m && m.name && !seen[m.name.trim().toLowerCase()]){ seen[m.name.trim().toLowerCase()] = true; out.push(m); }
+  });
+  return out;
+}
+function canApproveGoodToGo(ev){
+  var name = (state.appUser && state.appUser.display_name || "").trim().toLowerCase();
+  if(!name) return state.canAdmin;
+  if(state.canAdmin) return true;
+  if(GOOD_TO_GO_NAMES.indexOf(name) !== -1) return true;
+  var mgrs = resolveSeriesPeople(ev, state.seriesManagers);
+  return mgrs.some(function(m){ return m.name && m.name.trim().toLowerCase() === name; });
+}
+function checklistKey(slug, deptKey){ return slug + "__" + deptKey; }
+
+// ---------------- Auth ----------------
+sb.auth.onAuthStateChange(function(_event, session){
+  state.session = session;
+  loadAppUser().then(render);
+});
+
+function loadAppUser(){
+  if(!state.session){ state.appUser = null; state.canWrite = false; state.canAdmin = false; return Promise.resolve(); }
+  return sb.from("app_users").select("*").eq("id", state.session.user.id).maybeSingle().then(function(res){
+    state.appUser = res.data || null;
+    state.canWrite = !!state.appUser;
+    state.canAdmin = !!(state.appUser && state.appUser.role === "admin");
+  });
+}
+function signIn(email){
+  return sb.auth.signInWithOtp({ email: email, options: { emailRedirectTo: location.href } });
+}
+function signOut(){ sb.auth.signOut(); }
+
+// ---------------- Data loading ----------------
+function loadAll(){
+  return Promise.all([
+    sb.from("events").select("*").order("start_date", {ascending:true}),
+    sb.from("department_heads").select("*"),
+    sb.from("series_managers").select("*"),
+    sb.from("technical_managers").select("*"),
+    sb.from("series_profiles").select("*")
+  ]).then(function(r){
+    state.events = r[0].data || [];
+    state.departmentHeads = r[1].data || [];
+    state.seriesManagers = r[2].data || [];
+    state.technicalManagers = r[3].data || [];
+    state.seriesProfiles = r[4].data || [];
+    return loadCheckpointsAndChecklists();
+  });
+}
+function loadCheckpointsAndChecklists(){
+  var slugs = state.events.map(function(e){ return e.slug; });
+  if(!slugs.length){ state.checkpoints = {}; state.checklists = {}; return Promise.resolve(); }
+  return Promise.all([
+    sb.from("checkpoints").select("*").in("event_slug", slugs),
+    sb.from("checklist_items").select("*").in("event_slug", slugs).order("sort_order", {ascending:true})
+  ]).then(function(r){
+    state.checkpoints = {};
+    (r[0].data||[]).forEach(function(c){ state.checkpoints[checklistKey(c.event_slug, c.dept_key)] = c; });
+    state.checklists = {};
+    (r[1].data||[]).forEach(function(it){
+      var k = checklistKey(it.event_slug, it.dept_key);
+      (state.checklists[k] = state.checklists[k] || []).push(it);
+    });
+  });
+}
+function subscribeRealtime(){
+  sb.channel("app-db-changes")
+    .on("postgres_changes", {event:"*", schema:"public"}, function(){ loadAll().then(render); })
+    .subscribe();
+}
+
+// ---------------- Mutations ----------------
+function onCreateEvent(form){
+  var name = form.querySelector(".f-name").value.trim();
+  var loc = form.querySelector(".f-location").value.trim();
+  var start = form.querySelector(".f-start").value;
+  var end = form.querySelector(".f-end").value;
+  var series = Array.prototype.slice.call(form.querySelectorAll(".f-series-cb:checked")).map(function(cb){ return cb.value; });
+  if(!name || !start){ toast("Name and start date are required"); return; }
+  var slug = name.toLowerCase().replace(/[^a-z0-9]+/g,"-").replace(/(^-|-$)/g,"") + "-" + start.replace(/-/g,"");
+  var ev = { slug: slug, name: name, location: loc, start_date: start, end_date: end || start, series: series };
+  sb.from("events").insert(ev).then(function(res){
+    if(res.error){ toast("Couldn't create the event: " + res.error.message); return; }
+    var fakeEv = ev;
+    var writes = activeDeptsForEvent(fakeEv).map(function(d){
+      return sb.from("checkpoints").insert({ event_slug: slug, dept_key: d.key, status: "pending" });
+    });
+    var seedItems = [];
+    activeDeptsForEvent(fakeEv).forEach(function(d){
+      d.topics.forEach(function(t, i){ seedItems.push({ event_slug: slug, dept_key: d.key, text: t, sort_order: i }); });
+    });
+    Promise.all(writes).then(function(){
+      return seedItems.length ? sb.from("checklist_items").insert(seedItems) : Promise.resolve();
+    }).then(function(){
+      toast("Event created");
+      loadAll().then(function(){ setHash(slug); });
+    });
+  });
+}
+function onSaveEventEdit(ev, form){
+  var name = form.querySelector(".f-name").value.trim();
+  var loc = form.querySelector(".f-location").value.trim();
+  var start = form.querySelector(".f-start").value;
+  var end = form.querySelector(".f-end").value;
+  var series = Array.prototype.slice.call(form.querySelectorAll(".f-edit-series-cb:checked")).map(function(cb){ return cb.value; });
+  sb.from("events").update({ name:name, location:loc, start_date:start, end_date:end||start, series:series }).eq("slug", ev.slug).then(function(res){
+    if(res.error){ toast("Couldn't save: " + res.error.message); return; }
+    state.editingSlug = null;
+    toast("Event updated");
+    loadAll().then(render);
+  });
+}
+function onDeleteEvent(ev){
+  sb.from("events").delete().eq("slug", ev.slug).then(function(res){
+    if(res.error){ toast("Couldn't delete: " + res.error.message); return; }
+    toast("Event deleted");
+    loadAll().then(function(){ setHash(""); });
+  });
+}
+function onSaveChecklistDraft(ev, dept, items){
+  var rows = items.filter(function(t){ return t.trim(); }).map(function(t, i){ return { event_slug: ev.slug, dept_key: dept.key, text: t.trim(), sort_order: i }; });
+  if(!rows.length){ toast("Add at least one checklist item"); return; }
+  sb.from("checklist_items").insert(rows).then(function(res){
+    if(res.error){ toast("Couldn't save checklist: " + res.error.message); return; }
+    state.draftingDept = null;
+    toast("Checklist created for " + dept.label);
+    loadAll().then(render);
+  });
+}
+function onToggleItem(item){
+  sb.from("checklist_items").update({ done: !item.done, updated_at: new Date().toISOString() }).eq("id", item.id).then(function(res){
+    if(res.error){ toast(res.error.message); return; }
+    loadAll().then(render);
+  });
+}
+function onSetStatus(ev, dept, status, note){
+  var key = checklistKey(ev.slug, dept.key);
+  var existing = state.checkpoints[key];
+  var body = { status: status, note: note != null ? note : (existing ? existing.note : ""), updated_at: new Date().toISOString() };
+  var q = existing
+    ? sb.from("checkpoints").update(body).eq("event_slug", ev.slug).eq("dept_key", dept.key)
+    : sb.from("checkpoints").insert(Object.assign({event_slug: ev.slug, dept_key: dept.key}, body));
+  q.then(function(res){
+    if(res.error){ toast("Couldn't update: " + res.error.message); return; }
+    toast(status === "thumbsup" ? "Marked ready" : status === "flag" ? "Flagged" : "Reset");
+    loadAll().then(render);
+  });
+}
+
+// ---------------- Rendering ----------------
+function render(){
+  var app = document.getElementById("app");
+  if(!state.session){ app.innerHTML = renderSignIn(); wireSignIn(); return; }
+  var hash = location.hash.replace(/^#/, "");
+  state.slug = hash || null;
+  if(state.slug){
+    var ev = state.events.find(function(e){ return e.slug === state.slug; });
+    if(ev){ app.innerHTML = renderDetail(ev); wireDetail(ev); return; }
+  }
+  app.innerHTML = renderHome();
+  wireHome();
+}
+window.addEventListener("hashchange", render);
+
+function renderSignIn(){
+  return '<div class="topbar"><h1>Pre-Event Readiness Checklist</h1></div>' +
+    '<div class="card" style="max-width:360px;margin:60px auto">' +
+      '<h2>Sign in</h2>' +
+      '<p class="muted">Enter your work email -- we\'ll send a one-time sign-in link.</p>' +
+      '<div class="field"><label>Email</label><input type="email" id="signin-email" placeholder="you@usacnation.com" /></div>' +
+      '<button class="btn" id="signin-btn">Send link</button>' +
+      '<p class="muted" id="signin-msg" style="margin-top:10px"></p>' +
+    '</div>';
+}
+function wireSignIn(){
+  document.getElementById("signin-btn").addEventListener("click", function(){
+    var email = document.getElementById("signin-email").value.trim();
+    if(!email) return;
+    document.getElementById("signin-msg").textContent = "Sending…";
+    signIn(email).then(function(res){
+      document.getElementById("signin-msg").textContent = res.error ? res.error.message : "Check your email for the sign-in link.";
+    });
+  });
+}
+
+function renderHome(){
+  var html = '<div class="topbar"><h1>Pre-Event Readiness Checklist</h1>' +
+    '<div><span class="muted">' + esc(state.appUser ? state.appUser.display_name : "") + (state.canAdmin ? " (admin)" : "") + '</span> ' +
+    '<button class="link" id="signout-btn" style="margin-left:10px">Sign out</button></div></div>';
+
+  if(state.canWrite){
+    html += '<div class="card"><h2>+ Add event</h2>' + renderEventForm("add") + '</div>';
+  }
+
+  html += '<h2>Events</h2>';
+  if(!state.events.length) html += '<p class="muted">No events yet.</p>';
+  state.events.forEach(function(ev){
+    var activeDepts = activeDeptsForEvent(ev);
+    var dots = activeDepts.map(function(d){
+      var c = state.checkpoints[checklistKey(ev.slug, d.key)];
+      var cls = c && c.status === "thumbsup" ? "thumbsup" : (c && c.status === "flag" ? "flag" : "");
+      return '<span class="dot ' + cls + '" title="' + esc(d.label) + '"></span>';
+    }).join("");
+    html += '<div class="card event-card" data-slug="' + esc(ev.slug) + '">' +
+      '<div><strong>' + esc(ev.name) + '</strong><div class="muted">' + esc(ev.location||"") + ' · ' + esc(ev.start_date) + (ev.end_date && ev.end_date !== ev.start_date ? ' – ' + esc(ev.end_date) : '') + '</div>' +
+      '<div class="muted">' + esc(seriesListOf(ev).join(", ") || "No series set") + '</div></div>' +
+      '<div class="dept-chip-row">' + dots + '</div></div>';
+  });
+
+  if(state.canAdmin){
+    html += renderAdminPanels();
+  }
+  return html;
+}
+function renderEventForm(mode, ev){
+  var prefix = mode === "edit" ? "f-edit-" : "f-";
+  var seriesChecks = SERIES.map(function(s){
+    var checked = ev && seriesListOf(ev).indexOf(s) !== -1 ? "checked" : "";
+    return '<label class="dept-chip"><input type="checkbox" class="' + prefix + 'series-cb" value="' + esc(s) + '" ' + checked + ' /> ' + esc(s) + '</label>';
+  }).join("");
+  return '<form class="' + (mode==="edit"?"edit-form":"add-form") + '" onsubmit="return false">' +
+    '<div class="field"><label>Event name</label><input type="text" class="f-name" value="' + esc(ev?ev.name:"") + '" /></div>' +
+    '<div class="field"><label>Location</label><input type="text" class="f-location" value="' + esc(ev?ev.location:"") + '" /></div>' +
+    '<div class="field"><label>Start date</label><input type="date" class="f-start" value="' + esc(ev?ev.start_date:"") + '" /></div>' +
+    '<div class="field"><label>End date</label><input type="date" class="f-end" value="' + esc(ev?ev.end_date:"") + '" /></div>' +
+    '<div class="field"><label>Series (select all that apply)</label><div class="dept-chip-row">' + seriesChecks + '</div></div>' +
+    '<button type="button" class="btn ' + (mode==="edit"?"btn-save-edit":"btn-create") + '">' + (mode==="edit"?"Save changes":"Create checklist") + '</button>' +
+    (mode==="edit" ? ' <button type="button" class="btn secondary btn-cancel-edit">Cancel</button>' : '') +
+  '</form>';
+}
+function wireHome(){
+  document.getElementById("signout-btn").addEventListener("click", signOut);
+  var createBtn = document.querySelector(".btn-create");
+  if(createBtn) createBtn.addEventListener("click", function(){ onCreateEvent(createBtn.closest("form")); });
+  document.querySelectorAll(".event-card").forEach(function(c){
+    c.addEventListener("click", function(){ setHash(c.getAttribute("data-slug")); });
+  });
+  wireAdminPanels();
+}
+
+function renderDeptCard(ev, dept){
+  var key = checklistKey(ev.slug, dept.key);
+  var items = state.checklists[key] || [];
+  var cp = state.checkpoints[key] || {status:"pending", note:""};
+  var ownerLine = "";
+  if(dept.dynamicOwner){
+    var roster = dept.dynamicOwner === "seriesManager" ? state.seriesManagers : state.technicalManagers;
+    var people = resolveSeriesPeople(ev, roster);
+    ownerLine = '<div class="muted">' + esc(DYNAMIC_OWNER_NOTES[dept.dynamicOwner]) + '<br>Point person: ' +
+      esc(people.length ? people.map(function(p){ return p.name + (p.email?" ("+p.email+")":""); }).join(", ") : "not set") + '</div>';
+  }
+  var badge = cp.status === "thumbsup" ? '<span class="badge thumbsup">' + (dept.final?"Approved":"Ready") + '</span>'
+            : cp.status === "flag" ? '<span class="badge flag">Flagged</span>'
+            : '<span class="badge pending">Pending</span>';
+
+  var body;
+  if(!items.length){
+    if(state.draftingDept === dept.key){
+      var draftItems = dept.topics.slice();
+      body = '<p class="muted">Pre-filled from the ' + esc(dept.label) + ' template -- edit, add, or remove items for this event, then save.</p>' +
+        '<div class="draft-items">' + draftItems.map(function(t, i){
+          return '<div class="field"><input type="text" class="draft-item" value="' + esc(t) + '" /></div>';
+        }).join("") + '</div>' +
+        '<button class="link add-draft-row" type="button">+ add item</button>' +
+        '<div class="row-actions"><button class="btn btn-save-checklist">Save checklist</button><button class="btn secondary btn-cancel-draft">Cancel</button></div>';
+    } else {
+      body = '<p class="muted">No checklist yet for this event -- it can\'t be marked Ready until one is created.</p>' +
+        '<button class="btn secondary btn-start-checklist">Create checklist</button>';
+    }
+  } else {
+    var doneCount = items.filter(function(i){ return i.done; }).length;
+    body = '<div class="muted">' + doneCount + ' of ' + items.length + ' checked off</div>' +
+      items.map(function(it){
+        return '<div class="checklist-item"><input type="checkbox" data-item="' + it.id + '" ' + (it.done?"checked":"") + ' /><span>' + esc(it.text) + '</span></div>';
+      }).join("") +
+      '<div class="field" style="margin-top:8px"><label>Note</label><textarea class="dept-note">' + esc(cp.note||"") + '</textarea></div>' +
+      '<div class="row-actions">' +
+        '<button class="btn btn-mark-ready" ' + (doneCount<items.length ? "disabled" : "") + '>' + (dept.final?"Approve":"Mark Ready") + '</button>' +
+        '<button class="btn danger btn-flag">Flag</button>' +
+        '<button class="btn secondary btn-reset">Reset</button>' +
+      '</div>';
+  }
+
+  return '<div class="dept-card" data-dept="' + esc(dept.key) + '">' +
+    '<div class="head"><strong>' + esc(dept.label) + '</strong>' + badge + '</div>' +
+    ownerLine + body + '</div>';
+}
+
+function renderDetail(ev){
+  var activeDepts = activeDeptsForEvent(ev);
+  var html = '<div class="topbar"><button class="link" id="back-btn">&larr; All events</button>' +
+    '<button class="link" id="signout-btn">Sign out</button></div>';
+
+  if(state.editingSlug === ev.slug){
+    html += '<div class="card"><h2>Edit event</h2>' + renderEventForm("edit", ev) + '</div>';
+  } else {
+    html += '<div class="card"><div style="display:flex;justify-content:space-between;align-items:start">' +
+      '<div><h2>' + esc(ev.name) + '</h2><div class="muted">' + esc(ev.location||"") + ' · ' + esc(ev.start_date) +
+      (ev.end_date && ev.end_date!==ev.start_date ? ' – ' + esc(ev.end_date) : '') + '</div>' +
+      '<div class="muted">' + esc(seriesListOf(ev).join(", ")||"No series set") + '</div></div>';
+    if(state.canAdmin){
+      html += '<div class="row-actions"><button class="btn secondary" id="btn-edit-event">Edit</button><button class="btn danger" id="btn-delete-event">Delete</button></div>';
+    }
+    html += '</div>';
+    if(state.pendingDeleteSlug === ev.slug){
+      html += '<div class="confirm-box">Delete this event and all its checklists? This can\'t be undone.' +
+        '<div class="row-actions"><button class="btn danger" id="btn-confirm-delete">Yes, delete</button><button class="btn secondary" id="btn-cancel-delete">Cancel</button></div></div>';
+    }
+    html += '</div>';
+  }
+
+  activeDepts.forEach(function(dept){ html += renderDeptCard(ev, dept); });
+
+  var otherDepts = DEPTS.filter(function(d){ return activeDepts.indexOf(d) === -1; });
+  if(otherDepts.length){
+    html += '<p class="muted">Not applicable for this event\'s series: ' + otherDepts.map(function(d){ return esc(d.label); }).join(", ") + '</p>';
+  }
+  return html;
+}
+
+function wireDetail(ev){
+  document.getElementById("back-btn").addEventListener("click", function(){ setHash(""); });
+  document.getElementById("signout-btn").addEventListener("click", signOut);
+
+  if(state.editingSlug === ev.slug){
+    var form = document.querySelector(".edit-form");
+    document.querySelector(".btn-save-edit").addEventListener("click", function(){ onSaveEventEdit(ev, form); });
+    document.querySelector(".btn-cancel-edit").addEventListener("click", function(){ state.editingSlug = null; render(); });
+    return;
+  }
+  var editBtn = document.getElementById("btn-edit-event");
+  if(editBtn) editBtn.addEventListener("click", function(){ state.editingSlug = ev.slug; render(); });
+  var delBtn = document.getElementById("btn-delete-event");
+  if(delBtn) delBtn.addEventListener("click", function(){ state.pendingDeleteSlug = ev.slug; render(); });
+  var confirmBtn = document.getElementById("btn-confirm-delete");
+  if(confirmBtn) confirmBtn.addEventListener("click", function(){ onDeleteEvent(ev); });
+  var cancelBtn = document.getElementById("btn-cancel-delete");
+  if(cancelBtn) cancelBtn.addEventListener("click", function(){ state.pendingDeleteSlug = null; render(); });
+
+  activeDeptsForEvent(ev).forEach(function(dept){
+    var card = document.querySelector('.dept-card[data-dept="' + dept.key + '"]');
+    if(!card) return;
+    var startBtn = card.querySelector(".btn-start-checklist");
+    if(startBtn) startBtn.addEventListener("click", function(){ state.draftingDept = dept.key; render(); });
+    var cancelDraft = card.querySelector(".btn-cancel-draft");
+    if(cancelDraft) cancelDraft.addEventListener("click", function(){ state.draftingDept = null; render(); });
+    var addRow = card.querySelector(".add-draft-row");
+    if(addRow) addRow.addEventListener("click", function(){
+      var wrap = card.querySelector(".draft-items");
+      var div = document.createElement("div"); div.className = "field";
+      div.innerHTML = '<input type="text" class="draft-item" value="" />';
+      wrap.appendChild(div);
+    });
+    var saveDraft = card.querySelector(".btn-save-checklist");
+    if(saveDraft) saveDraft.addEventListener("click", function(){
+      var vals = Array.prototype.slice.call(card.querySelectorAll(".draft-item")).map(function(i){ return i.value; });
+      onSaveChecklistDraft(ev, dept, vals);
+    });
+    card.querySelectorAll("[data-item]").forEach(function(cb){
+      cb.addEventListener("change", function(){
+        var key = checklistKey(ev.slug, dept.key);
+        var item = (state.checklists[key]||[]).find(function(i){ return i.id === cb.getAttribute("data-item"); });
+        if(item) onToggleItem(item);
+      });
+    });
+    var readyBtn = card.querySelector(".btn-mark-ready");
+    if(readyBtn) readyBtn.addEventListener("click", function(){
+      if(dept.final && !canApproveGoodToGo(ev)){ toast("Only Jack, Randy, or this event's Series Manager can approve final sign-off"); return; }
+      var note = card.querySelector(".dept-note");
+      onSetStatus(ev, dept, "thumbsup", note ? note.value : undefined);
+    });
+    var flagBtn = card.querySelector(".btn-flag");
+    if(flagBtn) flagBtn.addEventListener("click", function(){
+      var note = card.querySelector(".dept-note");
+      onSetStatus(ev, dept, "flag", note ? note.value : undefined);
+    });
+    var resetBtn = card.querySelector(".btn-reset");
+    if(resetBtn) resetBtn.addEventListener("click", function(){ onSetStatus(ev, dept, "pending", ""); });
+  });
+}
+
+// ---------------- Admin panels ----------------
+function renderAdminPanels(){
+  var html = '<div class="series-section"><h2>Department heads</h2>';
+  DEPTS.filter(function(d){ return !d.dynamicOwner; }).forEach(function(d){
+    var row = state.departmentHeads.find(function(h){ return h.dept_key === d.key; }) || {name:"",email:""};
+    html += '<div class="roster-row" data-key="' + d.key + '">' +
+      '<div><label>' + esc(d.label) + '</label></div>' +
+      '<div><input type="text" class="rh-name" placeholder="Name" value="' + esc(row.name) + '" /></div>' +
+      '<div><input type="email" class="rh-email" placeholder="Email" value="' + esc(row.email) + '" /></div>' +
+      '<button class="btn secondary rh-save">Save</button></div>';
+  });
+
+  html += '<h2>Series managers (Staffing)</h2>';
+  SERIES.forEach(function(s){
+    var row = state.seriesManagers.find(function(m){ return m.series === s; }) || {name:"",email:""};
+    html += '<div class="roster-row" data-series="' + esc(s) + '">' +
+      '<div><label>' + esc(s) + '</label></div>' +
+      '<div><input type="text" class="sm-name" value="' + esc(row.name) + '" /></div>' +
+      '<div><input type="email" class="sm-email" value="' + esc(row.email) + '" /></div>' +
+      '<button class="btn secondary sm-save">Save</button></div>';
+  });
+
+  html += '<h2>Technical managers (never falls back to Series Manager)</h2>';
+  SERIES.forEach(function(s){
+    var row = state.technicalManagers.find(function(m){ return m.series === s; }) || {name:"",email:""};
+    html += '<div class="roster-row" data-series="' + esc(s) + '">' +
+      '<div><label>' + esc(s) + '</label></div>' +
+      '<div><input type="text" class="tm-name" value="' + esc(row.name) + '" /></div>' +
+      '<div><input type="email" class="tm-email" value="' + esc(row.email) + '" /></div>' +
+      '<button class="btn secondary tm-save">Save</button></div>';
+  });
+
+  html += '<h2>Series department profiles (which departments apply)</h2>';
+  SERIES.forEach(function(s){
+    var p = profileFor(s);
+    var active = p ? p.active_depts : DEPTS.filter(function(d){return !d.final;}).map(function(d){return d.key;});
+    var boxes = DEPTS.filter(function(d){ return !d.final; }).map(function(d){
+      var checked = active.indexOf(d.key) !== -1 ? "checked" : "";
+      return '<label class="dept-chip"><input type="checkbox" class="dept-profile-cb" value="' + d.key + '" ' + checked + ' /> ' + esc(d.label) + '</label>';
+    }).join("");
+    html += '<div class="card" data-profile-series="' + esc(s) + '"><strong>' + esc(s) + '</strong>' +
+      '<div class="dept-chip-row">' + boxes + '</div>' +
+      '<button class="btn secondary profile-save" style="margin-top:8px">Save</button></div>';
+  });
+
+  html += '</div>';
+  return html;
+}
+function wireAdminPanels(){
+  document.querySelectorAll(".roster-row[data-key]").forEach(function(row){
+    row.querySelector(".rh-save").addEventListener("click", function(){
+      var key = row.getAttribute("data-key");
+      var name = row.querySelector(".rh-name").value.trim();
+      var email = row.querySelector(".rh-email").value.trim();
+      sb.from("department_heads").upsert({dept_key:key, name:name, email:email}).then(function(res){
+        toast(res.error ? res.error.message : "Saved"); loadAll().then(render);
+      });
+    });
+  });
+  document.querySelectorAll('.roster-row[data-series]').forEach(function(row){
+    var smSave = row.querySelector(".sm-save");
+    if(smSave) smSave.addEventListener("click", function(){
+      var series = row.getAttribute("data-series");
+      var name = row.querySelector(".sm-name").value.trim();
+      var email = row.querySelector(".sm-email").value.trim();
+      sb.from("series_managers").upsert({series:series, name:name, email:email}).then(function(res){
+        toast(res.error ? res.error.message : "Saved"); loadAll().then(render);
+      });
+    });
+    var tmSave = row.querySelector(".tm-save");
+    if(tmSave) tmSave.addEventListener("click", function(){
+      var series = row.getAttribute("data-series");
+      var name = row.querySelector(".tm-name").value.trim();
+      var email = row.querySelector(".tm-email").value.trim();
+      sb.from("technical_managers").upsert({series:series, name:name, email:email}).then(function(res){
+        toast(res.error ? res.error.message : "Saved"); loadAll().then(render);
+      });
+    });
+  });
+  document.querySelectorAll("[data-profile-series]").forEach(function(card){
+    card.querySelector(".profile-save").addEventListener("click", function(){
+      var series = card.getAttribute("data-profile-series");
+      var active = Array.prototype.slice.call(card.querySelectorAll(".dept-profile-cb:checked")).map(function(cb){ return cb.value; });
+      sb.from("series_profiles").upsert({series:series, active_depts:active}).then(function(res){
+        toast(res.error ? res.error.message : "Saved"); loadAll().then(render);
+      });
+    });
+  });
+}
+
+// ---------------- Boot ----------------
+sb.auth.getSession().then(function(res){
+  state.session = res.data.session;
+  return loadAppUser();
+}).then(function(){
+  return loadAll();
+}).then(function(){
+  render();
+  subscribeRealtime();
+});
+</script>
+</body>
+</html>

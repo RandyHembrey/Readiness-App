@@ -144,12 +144,19 @@ var DYNAMIC_OWNER_NOTES = {
   seriesManager: "Point person is this event's Series Manager (set in the Series Managers admin panel below), not a fixed person.",
   technicalManager: "Point person is this event's Technical Manager (set in the Technical Managers admin panel below) -- never falls back to the Series Manager."
 };
+var SETTINGS_FIELDS = [
+  {key:"nudge_days_before", label:"Nudge email: days before event start", type:"number", placeholder:"14"},
+  {key:"summary_days_before", label:"Summary email: days before event start", type:"number", placeholder:"10"},
+  {key:"summary_recipient_email", label:"Summary email recipient", type:"email", placeholder:"randy@usacnation.com"},
+  {key:"email_from_name", label:"Email \"from\" display name", type:"text", placeholder:"Pre-Event Readiness"},
+  {key:"app_url", label:"App URL (used in email links)", type:"text", placeholder:"https://ready.roadracing.usacnation.com"}
+];
 
 // ---------------- State ----------------
 var state = {
   session: null, appUser: null, canWrite: false, canAdmin: false,
   events: [], checkpoints: {}, checklists: {},
-  departmentHeads: [], seriesManagers: [], technicalManagers: [], seriesProfiles: [],
+  departmentHeads: [], seriesManagers: [], technicalManagers: [], seriesProfiles: [], settings: {},
   view: "home", slug: null, editingSlug: null, pendingDeleteSlug: null, draftingDept: null
 };
 
@@ -222,13 +229,16 @@ function loadAll(){
     sb.from("department_heads").select("*"),
     sb.from("series_managers").select("*"),
     sb.from("technical_managers").select("*"),
-    sb.from("series_profiles").select("*")
+    sb.from("series_profiles").select("*"),
+    sb.from("app_settings").select("*")
   ]).then(function(r){
     state.events = r[0].data || [];
     state.departmentHeads = r[1].data || [];
     state.seriesManagers = r[2].data || [];
     state.technicalManagers = r[3].data || [];
     state.seriesProfiles = r[4].data || [];
+    state.settings = {};
+    (r[5].data || []).forEach(function(s){ state.settings[s.key] = s.value; });
     return loadCheckpointsAndChecklists();
   });
 }
@@ -609,6 +619,15 @@ function renderAdminPanels(){
       '<button class="btn secondary profile-save" style="margin-top:8px">Save</button></div>';
   });
 
+  html += '<h2>App settings</h2>';
+  SETTINGS_FIELDS.forEach(function(f){
+    var val = state.settings[f.key] || "";
+    html += '<div class="roster-row" data-settings-key="' + esc(f.key) + '">' +
+      '<div><label>' + esc(f.label) + '</label></div>' +
+      '<div style="grid-column: span 2"><input type="' + esc(f.type) + '" class="settings-input" placeholder="' + esc(f.placeholder||"") + '" value="' + esc(val) + '" /></div>' +
+      '<button class="btn secondary settings-save">Save</button></div>';
+  });
+
   html += '</div>';
   return html;
 }
@@ -648,6 +667,15 @@ function wireAdminPanels(){
       var series = card.getAttribute("data-profile-series");
       var active = Array.prototype.slice.call(card.querySelectorAll(".dept-profile-cb:checked")).map(function(cb){ return cb.value; });
       sb.from("series_profiles").upsert({series:series, active_depts:active}).then(function(res){
+        toast(res.error ? res.error.message : "Saved"); loadAll().then(render);
+      });
+    });
+  });
+  document.querySelectorAll(".roster-row[data-settings-key]").forEach(function(row){
+    row.querySelector(".settings-save").addEventListener("click", function(){
+      var key = row.getAttribute("data-settings-key");
+      var value = row.querySelector(".settings-input").value.trim();
+      sb.from("app_settings").upsert({key:key, value:value, updated_at:new Date().toISOString()}).then(function(res){
         toast(res.error ? res.error.message : "Saved"); loadAll().then(render);
       });
     });

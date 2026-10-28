@@ -51,6 +51,11 @@
   .toast{position:fixed;bottom:18px;left:50%;transform:translateX(-50%);background:var(--panel-2);border:1px solid var(--border);border-radius:8px;padding:9px 16px;font-size:.85rem;opacity:0;transition:opacity .2s;pointer-events:none}
   .toast.show{opacity:1}
   .roster-row{display:grid;grid-template-columns:1fr 1fr 1fr auto;gap:8px;align-items:end;margin-bottom:8px}
+  @media (max-width:560px){
+    .roster-row{grid-template-columns:1fr;gap:4px}
+    .roster-row > div{width:100%}
+    .roster-row .btn{width:100%;justify-content:center;margin-top:2px}
+  }
   .series-section{border-top:1px dashed var(--border);padding-top:10px;margin-top:10px}
   .link{color:var(--accent);cursor:pointer;background:none;border:none;font-size:.85rem;padding:0}
   textarea{min-height:60px}

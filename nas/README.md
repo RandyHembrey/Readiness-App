@@ -8,7 +8,8 @@ Internet ──► GoDaddy DNS ──► home router :80/:443 ──► NAS :808
 
 | Path | What it is |
 |---|---|
-| `race-todo/` | Race Event To-Do portal for Susanne (Node 24 + SQLite, no dependencies) |
+| `race-todo/` | Event readiness portal for Susanne, USF Pro Championships business manager (Node 24 + SQLite, no dependencies) |
+| `race-todo/demo/race-todo-demo.html` | Single-file clickable demo with a mock season (no server needed; rebuild with `node race-todo/demo/build-demo.js`) |
 | `apps-portal/html/` | `apps.hembrey.com` landing page. Edit `apps.json` to list apps |
 | `caddy/Caddyfile` | Reverse proxy with automatic Let's Encrypt HTTPS |
 | `docker-compose.yml` | The whole stack |
@@ -22,9 +23,21 @@ Internet ──► GoDaddy DNS ──► home router :80/:443 ──► NAS :808
   from race day (for example, −90 means 90 days before). You can add one-off tasks with a due date,
   category and owner, filter by open/overdue/due soon/done and by category, archive events, and
   move the race date. Moving the date shifts the open tasks' due dates with it.
-- **Standard checklist:** edit the default task list (about 30 race-director tasks are seeded:
-  permits, insurance certificate, timing, EMS, volunteers, awards, post-event report and so on).
+- **Standard checklist** (seeded from `race-todo/seed.js`, editable in the app), built around
+  Susanne's role as promoter/operator business manager:
+  - **Venue Contract:** promoter agreement, track dates, COI exchange, paddock and hospitality
+    allocations, the bilateral deliverables matrix (what the venue owes, what the promoter owes),
+    the post-event compliance review and the settlement.
+  - **Info Distribution:** supplemental regulations, schedule, paddock map, credentials, travel
+    memos and bulletins for staff, competitors and partners.
+  - **Banking:** venue deposit and balance wire, entry-fee reconciliation, prize fund, cash float,
+    invoices, and the event P&L.
+  - **Dept Readiness:** Technical, Logistics and Marketing milestones and sign-offs, plus the
+    all-department go/no-go meeting.
+  Each task has a default owner, and the event page can filter by owner (for example, "Marketing").
   To pull newly added tasks into an existing event, use "Sync standard list" on that event.
+- **Next race readiness by area:** a progress bar for each of the four areas on the dashboard.
+- `DEMO_DATA=1` loads a mock six-round USF Pro season into an empty database, for demos.
 - Protected by one shared password (`RACE_TODO_PASSWORD`), with a 30-day sign-in cookie and a
   limit on login attempts.
 - Data: `volumes/race-todo/race-todo.db` (SQLite). Back up that folder with Hyper Backup.

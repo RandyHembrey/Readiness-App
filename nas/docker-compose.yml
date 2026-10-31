@@ -29,5 +29,7 @@ services:
     restart: unless-stopped
     environment:
       APP_PASSWORD: ${RACE_TODO_PASSWORD:?set RACE_TODO_PASSWORD in .env}
+      APP_TITLE: ${RACE_TODO_TITLE:-USF Pro Championships · Event Readiness}
+      DEMO_DATA: ${RACE_TODO_DEMO_DATA:-0}   # 1 = load a mock season into an empty database
     volumes:
       - ./volumes/race-todo:/data

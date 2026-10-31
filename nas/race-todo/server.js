@@ -11,6 +11,7 @@ const PORT = Number(process.env.PORT || 3000);
 const DATA_DIR = process.env.DATA_DIR || path.join(__dirname, 'data');
 const APP_PASSWORD = process.env.APP_PASSWORD || '';
 const SESSION_DAYS = 30;
+const APP_TITLE = process.env.APP_TITLE || 'Race Event To-Do';
 fs.mkdirSync(DATA_DIR, { recursive: true });
 
 // ---------- secret for signing session cookies (persisted so restarts keep you logged in)
@@ -32,6 +33,7 @@ CREATE TABLE IF NOT EXISTS template_tasks (
   category TEXT NOT NULL DEFAULT 'General',
   offset_days INTEGER NOT NULL DEFAULT 0,   -- days relative to event date (negative = before)
   notes TEXT NOT NULL DEFAULT '',
+  owner TEXT NOT NULL DEFAULT '',
   sort_order INTEGER NOT NULL DEFAULT 0
 );
 CREATE TABLE IF NOT EXISTS events (
@@ -58,42 +60,15 @@ CREATE TABLE IF NOT EXISTS event_tasks (
 CREATE INDEX IF NOT EXISTS event_tasks_event_idx ON event_tasks(event_id);
 `);
 
-// Seed a standard race-event checklist the first time the app starts.
+if (!db.prepare('PRAGMA table_info(template_tasks)').all().some((c) => c.name === 'owner')) {
+  db.exec("ALTER TABLE template_tasks ADD COLUMN owner TEXT NOT NULL DEFAULT ''");
+}
+
+// Seed the standard checklist the first time the app starts.
+const { TEMPLATE, DEMO_EVENTS } = require('./seed');
 if (db.prepare('SELECT COUNT(*) AS n FROM template_tasks').get().n === 0) {
-  const seed = [
-    ['Planning', -180, 'Confirm date & venue'],
-    ['Permits', -150, 'Submit USA Cycling event permit application'],
-    ['Permits', -120, 'Submit city / county / park permits'],
-    ['Permits', -90, 'Obtain certificate of insurance (COI) for venue & municipalities'],
-    ['Course', -120, 'Finalize course map'],
-    ['Course', -60, 'Traffic control / police plan approved'],
-    ['Registration', -120, 'Open online registration'],
-    ['Registration', -7, 'Close online registration'],
-    ['Vendors', -90, 'Book timing company'],
-    ['Vendors', -90, 'Book EMS / medical coverage'],
-    ['Vendors', -60, 'Order portable toilets'],
-    ['Vendors', -45, 'Order barricades, fencing & tents'],
-    ['Officials', -90, 'Request officials / chief referee assignment'],
-    ['Volunteers', -60, 'Recruit volunteers & course marshals'],
-    ['Volunteers', -10, 'Send volunteer assignments & briefing'],
-    ['Marketing', -90, 'Publish event website / flyer'],
-    ['Marketing', -30, 'Social media promotion push'],
-    ['Awards', -45, 'Order medals / trophies / podium items'],
-    ['Awards', -30, 'Confirm prize list & prize money'],
-    ['Logistics', -21, 'Publish race bible / athlete guide'],
-    ['Logistics', -14, 'Order signage & course arrows'],
-    ['Logistics', -7, 'Print bib numbers & packet materials'],
-    ['Logistics', -3, 'Confirm all vendor deliveries & arrival times'],
-    ['Logistics', -1, 'Packet pickup & venue setup'],
-    ['Race Day', 0, 'Rider briefing & race-day run sheet'],
-    ['Post-Event', 1, 'Post official results'],
-    ['Post-Event', 7, 'Pay vendor invoices & prize money'],
-    ['Post-Event', 7, 'Send thank-yous to sponsors, volunteers & city'],
-    ['Post-Event', 14, 'Submit post-event report to USA Cycling'],
-    ['Post-Event', 21, 'Debrief & lessons learned'],
-  ];
-  const ins = db.prepare('INSERT INTO template_tasks (category, offset_days, title, sort_order) VALUES (?,?,?,?)');
-  seed.forEach((s, i) => ins.run(s[0], s[1], s[2], i));
+  const ins = db.prepare('INSERT INTO template_tasks (category, offset_days, title, owner, sort_order) VALUES (?,?,?,?,?)');
+  TEMPLATE.forEach((s, i) => ins.run(s[0], s[1], s[2], s[3] || '', i));
 }
 
 // ---------- helpers
@@ -155,6 +130,25 @@ function tooMany(ip) {
   return a.length >= 10;
 }
 
+// Optional mock season for demos: DEMO_DATA=1 and an empty database.
+if (process.env.DEMO_DATA === '1' && db.prepare('SELECT COUNT(*) AS n FROM events').get().n === 0) {
+  const today = new Date().toISOString().slice(0, 10);
+  const tmpl = db.prepare('SELECT * FROM template_tasks ORDER BY offset_days, sort_order, id').all();
+  const insE = db.prepare('INSERT INTO events (name, event_date, location, notes) VALUES (?,?,?,?)');
+  const insT = db.prepare('INSERT INTO event_tasks (event_id, title, category, due_date, owner, notes, sort_order, done, done_at) VALUES (?,?,?,?,?,?,?,?,?)');
+  DEMO_EVENTS.forEach((e, ei) => {
+    const date = addDays(today, e.inDays);
+    const id = insE.run(e.name, date, e.location, e.notes).lastInsertRowid;
+    tmpl.forEach((t, i) => {
+      const due = addDays(date, t.offset_days);
+      // deterministic: most past-due tasks done, a few left open (overdue); a few early finishers
+      const h = (ei * 31 + i * 17) % 100;
+      const done = due < today ? h < e.done * 100 : (due < addDays(today, 21) && h < 25);
+      insT.run(id, t.title, t.category, due, t.owner, '', i, done ? 1 : 0, done ? new Date().toISOString() : null);
+    });
+  });
+}
+
 // ---------- API
 function eventWithTasks(id) {
   const ev = db.prepare('SELECT * FROM events WHERE id = ?').get(id);
@@ -182,8 +176,8 @@ const routes = {
         .run(name, b.event_date, str(b.location, 200), str(b.notes));
       if (b.apply_template !== false) {
         const tmpl = db.prepare('SELECT * FROM template_tasks ORDER BY offset_days, sort_order, id').all();
-        const ins = db.prepare('INSERT INTO event_tasks (event_id, title, category, due_date, notes, sort_order) VALUES (?,?,?,?,?,?)');
-        tmpl.forEach((t, i) => ins.run(id, t.title, t.category, addDays(b.event_date, t.offset_days), t.notes, i));
+        const ins = db.prepare('INSERT INTO event_tasks (event_id, title, category, due_date, owner, notes, sort_order) VALUES (?,?,?,?,?,?,?)');
+        tmpl.forEach((t, i) => ins.run(id, t.title, t.category, addDays(b.event_date, t.offset_days), t.owner, t.notes, i));
       }
       db.exec('COMMIT');
       return eventWithTasks(id);
@@ -257,8 +251,8 @@ const routes = {
     const b = await readJson(req);
     const title = str(b.title, 300);
     if (!title) return [400, { error: 'Title is required' }];
-    const { lastInsertRowid } = db.prepare('INSERT INTO template_tasks (title, category, offset_days, notes, sort_order) VALUES (?,?,?,?,?)')
-      .run(title, str(b.category, 80) || 'General', Number.parseInt(b.offset_days, 10) || 0, str(b.notes), 999);
+    const { lastInsertRowid } = db.prepare('INSERT INTO template_tasks (title, category, offset_days, owner, notes, sort_order) VALUES (?,?,?,?,?,?)')
+      .run(title, str(b.category, 80) || 'General', Number.parseInt(b.offset_days, 10) || 0, str(b.owner, 100), str(b.notes), 999);
     return db.prepare('SELECT * FROM template_tasks WHERE id = ?').get(lastInsertRowid);
   },
 
@@ -266,10 +260,11 @@ const routes = {
     const b = await readJson(req);
     const t = db.prepare('SELECT * FROM template_tasks WHERE id = ?').get(id);
     if (!t) return [404, { error: 'Not found' }];
-    db.prepare('UPDATE template_tasks SET title=?, category=?, offset_days=?, notes=? WHERE id=?').run(
+    db.prepare('UPDATE template_tasks SET title=?, category=?, offset_days=?, owner=?, notes=? WHERE id=?').run(
       b.title !== undefined ? str(b.title, 300) || t.title : t.title,
       b.category !== undefined ? str(b.category, 80) || 'General' : t.category,
       b.offset_days !== undefined ? Number.parseInt(b.offset_days, 10) || 0 : t.offset_days,
+      b.owner !== undefined ? str(b.owner, 100) : t.owner,
       b.notes !== undefined ? str(b.notes) : t.notes, id);
     return db.prepare('SELECT * FROM template_tasks WHERE id = ?').get(id);
   },
@@ -284,10 +279,10 @@ const routes = {
     const ev = db.prepare('SELECT * FROM events WHERE id = ?').get(id);
     if (!ev) return [404, { error: 'Not found' }];
     const have = new Set(db.prepare('SELECT lower(title) AS t FROM event_tasks WHERE event_id = ?').all(id).map((r) => r.t));
-    const ins = db.prepare('INSERT INTO event_tasks (event_id, title, category, due_date, notes, sort_order) VALUES (?,?,?,?,?,?)');
+    const ins = db.prepare('INSERT INTO event_tasks (event_id, title, category, due_date, owner, notes, sort_order) VALUES (?,?,?,?,?,?,?)');
     let added = 0;
     db.prepare('SELECT * FROM template_tasks ORDER BY offset_days, sort_order, id').all().forEach((t, i) => {
-      if (!have.has(t.title.toLowerCase())) { ins.run(id, t.title, t.category, addDays(ev.event_date, t.offset_days), t.notes, i); added++; }
+      if (!have.has(t.title.toLowerCase())) { ins.run(id, t.title, t.category, addDays(ev.event_date, t.offset_days), t.owner, t.notes, i); added++; }
     });
     return { added };
   },
@@ -339,7 +334,7 @@ const server = http.createServer(async (req, res) => {
     if (pathname === '/api/logout') {
       return send(res, 200, { ok: true }, { 'Set-Cookie': 'rt_session=; HttpOnly; Path=/; Max-Age=0' });
     }
-    if (pathname === '/api/me') return send(res, 200, { authed: authed(req), passwordRequired: !!APP_PASSWORD });
+    if (pathname === '/api/me') return send(res, 200, { authed: authed(req), passwordRequired: !!APP_PASSWORD, title: APP_TITLE });
 
     if (pathname.startsWith('/api/')) {
       if (!authed(req)) return send(res, 401, { error: 'Not signed in' });

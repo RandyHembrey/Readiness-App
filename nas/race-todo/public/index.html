@@ -90,7 +90,7 @@
 <dialog id="dlg"></dialog>
 <script>
 "use strict";
-var S = { view: "dashboard", eventId: null, data: null, filter: "open", catFilter: "" };
+var S = { view: "dashboard", eventId: null, data: null, filter: "open", catFilter: "", ownerFilter: "" };
 var app = document.getElementById("app");
 
 // ---------- utils
@@ -111,6 +111,7 @@ function h(tag, attrs, kids){
   return el;
 }
 function api(method, url, body){
+  if (window.RACE_DEMO_API) return window.RACE_DEMO_API(method, url, body);
   return fetch(url, { method: method, headers: body ? {"Content-Type":"application/json"} : {}, body: body ? JSON.stringify(body) : undefined, credentials: "same-origin" })
     .then(function(r){ return r.json().then(function(j){ if(!r.ok){ if(r.status===401){ renderLogin(); } throw new Error(j.error||r.statusText);} return j; }); });
 }
@@ -155,7 +156,7 @@ function render(){
   app.innerHTML = "";
   var tabs = [["dashboard","Dashboard"],["events","Events"],["template","Standard checklist"]];
   app.appendChild(h("header",{},[
-    h("h1",{},"🏁 Race Event To-Do"),
+    h("h1",{},"🏁 "+(S.title||"Race Event To-Do")),
     h("nav",{}, tabs.map(function(t){ return h("button",{class: (S.view===t[0] || (S.view==="event"&&t[0]==="events")) ? "active":"", onclick:function(){ S.view=t[0]; S.eventId=null; location.hash=t[0]; render(); }}, t[1]); })),
     h("button",{class:"btn",onclick:openNewEvent},"+ New event"),
     S.passwordRequired ? h("button",{class:"btn ghost",onclick:function(){ api("POST","/api/logout").then(renderLogin); }},"Sign out") : null
@@ -192,6 +193,8 @@ function renderDashboard(root){
     return;
   }
 
+  if (next) root.appendChild(areaCard(next));
+
   // open tasks due per week
   root.appendChild(h("div",{class:"card"},[
     h("h2",{},"Open tasks by due week"),
@@ -206,6 +209,24 @@ function renderDashboard(root){
       attention.length>25 ? h("div",{class:"muted"},"+"+(attention.length-25)+" more") : null]),
     h("div",{class:"card"},[h("h2",{},"Event progress"), h("div",{}, evs.slice().sort(function(a,b){return a.event_date<b.event_date?-1:1;}).map(eventRow))])
   ]));
+}
+function areaCard(ev){
+  var ts = S.data.tasks.filter(function(t){ return t.event_id===ev.id; });
+  var cats = Array.from(new Set(ts.map(function(t){return t.category;})));
+  return h("div",{class:"card"},[
+    h("div",{style:"display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap;align-items:baseline"},[
+      h("h2",{},"Next race readiness by area"),
+      h("a",{href:"#",onclick:function(e){e.preventDefault(); openEvent(ev.id);}}, ev.name+(ev.location?" · "+ev.location:"")+" · "+fmtDate(ev.event_date))]),
+    h("div",{class:"grid",style:"grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:18px;margin-top:6px"}, cats.map(function(c){
+      var ct = ts.filter(function(t){return t.category===c;}), d = ct.filter(function(t){return t.done;}).length, pct = Math.round(d*100/ct.length);
+      var od = ct.filter(function(t){return taskState(t)==="overdue";}).length;
+      return h("div",{style:"cursor:pointer",onclick:function(){ S.catFilter=c; S.filter="all"; openEvent(ev.id); }},[
+        h("div",{style:"font-weight:600;font-size:.9rem;margin-bottom:6px"},c),
+        h("div",{class:"meter"+(pct===100?" complete":"")},h("span",{style:"width:"+pct+"%"})),
+        h("div",{class:"meter-label"},[h("span",{},d+" / "+ct.length+" done"), od ? h("span",{class:"status overdue"},[h("span",{class:"ico","aria-hidden":"true"},"!"),od+" overdue"]) : h("span",{},pct+"%")])
+      ]);
+    }))
+  ]);
 }
 function tile(label, value, sub){ return h("div",{class:"tile"},[h("div",{class:"label"},label),h("div",{class:"value"},String(value)),h("div",{class:"sub"},sub)]); }
 
@@ -291,7 +312,7 @@ function renderEvents(root){
 }
 
 // ---------- single event
-function openEvent(id){ S.view="event"; S.eventId=id; location.hash="event/"+id; render(); window.scrollTo(0,0); }
+function openEvent(id){ if (S.eventId!==id && S.view!=="dashboard"){ S.catFilter=""; S.ownerFilter=""; S.filter="open"; } S.view="event"; S.eventId=id; location.hash="event/"+id; render(); window.scrollTo(0,0); }
 function renderEvent(root){
   var ev = S.data.events.find(function(e){return e.id===S.eventId;});
   if (!ev){ S.view="events"; return renderEvents(root); }
@@ -328,17 +349,20 @@ function renderEvent(root){
 
   // filters
   var sel = h("select",{onchange:function(){ S.filter=sel.value; render(); }},[["open","Open tasks"],["overdue","Overdue"],["soon","Due in 7 days"],["done","Completed"],["all","All tasks"]].map(function(o){ return h("option",{value:o[0],selected:S.filter===o[0]},o[1]); }));
+  var owners = Array.from(new Set(tasks.map(function(t){return t.owner;}).filter(Boolean))).sort();
+  var osel = h("select",{onchange:function(){ S.ownerFilter=osel.value; render(); }},[h("option",{value:""},"All owners")].concat(owners.map(function(o){return h("option",{value:o,selected:S.ownerFilter===o},o);})));
   var csel = h("select",{onchange:function(){ S.catFilter=csel.value; render(); }},[h("option",{value:""},"All categories")].concat(cats.map(function(c){return h("option",{value:c,selected:S.catFilter===c},c);})));
   var shown = tasks.filter(function(t){
     var s = taskState(t);
     if (S.catFilter && t.category!==S.catFilter) return false;
+    if (S.ownerFilter && t.owner!==S.ownerFilter) return false;
     if (S.filter==="open") return !t.done; if (S.filter==="done") return t.done;
     if (S.filter==="overdue") return s==="overdue"; if (S.filter==="soon") return s==="soon"; return true;
   });
   var list = h("div",{});
   if (!shown.length) list.appendChild(h("div",{class:"empty"},"No tasks match this filter."));
   shown.forEach(function(t){ list.appendChild(taskRow(t,false)); });
-  root.appendChild(h("div",{class:"card"},[h("div",{class:"toolbar"},[h("h2",{style:"margin:0;margin-right:auto"},"Tasks"),sel,csel]), list]));
+  root.appendChild(h("div",{class:"card"},[h("div",{class:"toolbar"},[h("h2",{style:"margin:0;margin-right:auto"},"Tasks"),sel,csel,osel]), list]));
 }
 
 // ---------- template
@@ -350,17 +374,18 @@ function renderTemplate(root){
     tbody.appendChild(h("tr",{},[
       h("td",{},inp("title")), h("td",{style:"width:150px"},inp("category")),
       h("td",{style:"width:110px"},inp("offset_days",{type:"number"})),
+      h("td",{style:"width:130px"},inp("owner")),
       h("td",{style:"width:40px"},h("button",{class:"btn ghost",title:"Remove",onclick:function(){ if(confirm("Remove “"+t.title+"” from the standard checklist? (Existing events keep their copy.)")) api("DELETE","/api/template/"+t.id).then(load); }},"✕"))
     ]));
   });
-  var f = { title:h("input",{placeholder:"New standard task…"}), cat:h("input",{placeholder:"Category"}), off:h("input",{type:"number",placeholder:"-30"}) };
+  var f = { title:h("input",{placeholder:"New standard task…"}), cat:h("input",{placeholder:"Category"}), off:h("input",{type:"number",placeholder:"-30"}), own:h("input",{placeholder:"Owner"}) };
   root.appendChild(h("div",{class:"card"},[
     h("h2",{},"Standard checklist"),
     h("p",{class:"muted",style:"margin-top:-4px"},"Every new event starts with these tasks. “Days from race” sets the due date: −30 means 30 days before race day, 7 means a week after. Changes here apply to new events; use “Sync standard list” on an event to pull in newly added tasks."),
-    h("table",{class:"tmpl"},[h("thead",{},h("tr",{},[h("th",{},"Task"),h("th",{},"Category"),h("th",{},"Days from race"),h("th",{})])), tbody]),
-    h("form",{class:"form-row",style:"grid-template-columns:2fr 1fr 110px auto;margin-top:12px",onsubmit:function(e){ e.preventDefault(); if(!f.title.value.trim())return;
-      api("POST","/api/template",{title:f.title.value,category:f.cat.value,offset_days:f.off.value}).then(function(){ toast("Added"); load(); }); }},
-      [h("div",{},f.title),h("div",{},f.cat),h("div",{},f.off),h("button",{class:"btn",type:"submit"},"Add")])
+    h("table",{class:"tmpl"},[h("thead",{},h("tr",{},[h("th",{},"Task"),h("th",{},"Category"),h("th",{},"Days from race"),h("th",{},"Default owner"),h("th",{})])), tbody]),
+    h("form",{class:"form-row",style:"grid-template-columns:2fr 1fr 110px 130px auto;margin-top:12px",onsubmit:function(e){ e.preventDefault(); if(!f.title.value.trim())return;
+      api("POST","/api/template",{title:f.title.value,category:f.cat.value,offset_days:f.off.value,owner:f.own.value}).then(function(){ toast("Added"); load(); }); }},
+      [h("div",{},f.title),h("div",{},f.cat),h("div",{},f.off),h("div",{},f.own),h("button",{class:"btn",type:"submit"},"Add")])
   ]));
 }
 
@@ -398,14 +423,14 @@ function openTaskEditor(t){
 function renderLogin(){
   app.innerHTML="";
   var pw=h("input",{type:"password",placeholder:"Password",autofocus:true});
-  app.appendChild(h("div",{class:"card login"},[h("div",{style:"font-size:2rem"},"🏁"),h("h2",{},"Race Event To-Do"),
+  app.appendChild(h("div",{class:"card login"},[h("div",{style:"font-size:2rem"},"🏁"),h("h2",{},S.title||"Race Event To-Do"),
     h("form",{onsubmit:function(e){ e.preventDefault(); api("POST","/api/login",{password:pw.value}).then(boot).catch(function(err){ toast(err.message); }); }},
       [pw, h("button",{class:"btn",type:"submit",style:"width:100%;justify-content:center;margin-top:10px"},"Sign in")])]));
 }
 
 function boot(){
   api("GET","/api/me").then(function(me){
-    S.passwordRequired = me.passwordRequired;
+    S.passwordRequired = me.passwordRequired; S.title = me.title; document.title = me.title || document.title;
     if (!me.authed) return renderLogin();
     var m = location.hash.match(/^#event\/(\d+)/);
     if (m){ S.view="event"; S.eventId=Number(m[1]); }

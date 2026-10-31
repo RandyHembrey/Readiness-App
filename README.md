@@ -150,3 +150,22 @@ To use your own domain via Route 53: Pages → your project → Custom domains
 → add the hostname, then add the CNAME record Cloudflare shows you in
 Route 53. This works for a subdomain (e.g. `readiness.usacnation.com`);
 a bare root domain needs Cloudflare's nameservers instead of a CNAME.
+
+## Adding the UniFi Network Config department
+
+The app now includes a **UniFi Network Config** department (`dept_key`
+`unifi-network`). It's a static department, so it shows up in the
+**Department heads** admin panel. After this lands:
+
+- Set a department head (name + email) for it in the admin panel, so
+  daily nudges have someone to email.
+- Series whose department profile has already been saved won't include
+  the new department until it's turned on. Tick **UniFi Network Config** in
+  **Series department profiles** for each series that needs it, then Save.
+  Series with no saved profile get it automatically.
+- Events created before the change won't have a checkpoint for it. Open
+  the event and use the department card's create-checklist button to
+  start one from the template.
+- Redeploy the `daily-nudges` Edge Function so nudge and summary emails
+  include the new department:
+  `supabase functions deploy daily-nudges --project-ref htddvcyexenhrfndhgwp`

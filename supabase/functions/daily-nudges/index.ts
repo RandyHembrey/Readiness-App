@@ -16,6 +16,7 @@ const DEPTS = [
   { key: "race-control", label: "Race Control & Competition" },
   { key: "safety-medical", label: "Safety & Medical" },
   { key: "logistics-equipment", label: "Logistics & Equipment" },
+  { key: "unifi-network", label: "UniFi Network Config" },
   { key: "entries-credentials", label: "Entries & Credentials" },
   { key: "technical", label: "Technical", dynamicOwner: "technicalManager" },
   { key: "staffing", label: "Staffing", dynamicOwner: "seriesManager" },

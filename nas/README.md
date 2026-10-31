@@ -71,6 +71,17 @@ below and re-entering (or exporting) the data.
   on race day, or on a fixed date. Lead-time tasks move automatically when the race date changes.
   On the standard checklist, "Apply to upcoming events" rolls edits into events already on the
   calendar. Completed and ad-hoc tasks are never overwritten.
+- **Team:** departments (Business Office, Logistics, Tech & Operations, Equipment, Marketing),
+  each with a responsible manager and an email address. Every task is owned by a department.
+  Renaming a department moves its tasks with it.
+- **Reports:** a weekly status report per manager, plus an all-department program summary.
+  Each lists what's overdue, what's due in the next 2 weeks and what was completed last week,
+  for every event. There's also a preview of the daily reminder and a Copy button.
+- **Email notifications (NAS only):** for departments with notifications ticked, the server
+  emails the weekly report (Mondays 7:00 by default) and a daily reminder whenever something is
+  due within a day or overdue. Departments marked "all-department report" also get the program
+  summary. The Team tab has a "Send test" button. Mail goes through the `mailrelay` container,
+  the only piece with outbound mail access. The apps themselves still can't reach the internet.
 - **Next race readiness by area:** a progress bar for each of the four areas on the dashboard.
 - `DEMO_DATA=1` loads a mock six-round USF Pro season into an empty database, for demos.
 - Protected by one shared password (`RACE_TODO_PASSWORD`), with a 30-day sign-in cookie and a
@@ -149,7 +160,17 @@ In hembrey.com → DNS → Records:
 (GoDaddy's DNS API is closed to most accounts now, so a CNAME to a Synology DDNS name is the
 reliable way to follow a changing IP.)
 
-### 6. Check
+### 6. Email (optional, when names and roles are final)
+1. Choose a sending mailbox, for example `races@hembrey.com`. If it's Gmail or Google Workspace, create an
+   **app password** for it.
+2. In `.env`, set `MAIL_FROM`, `SMTP_RELAY_USER` and `SMTP_RELAY_PASSWORD` (and `SMTP_RELAY_HOST`
+   if you don't use Gmail). Then click Build in Container Manager.
+3. In the app, go to **Team**, enter each manager's email, tick **Weekly report + reminders**, and
+   use **Send test**.
+4. To keep the reports out of spam, add the provider's SPF/DKIM records for hembrey.com in GoDaddy
+   DNS. Google Workspace shows them under Apps → Gmail → Authenticate email.
+
+### 7. Check
 - Open https://apps.hembrey.com, then click through to the portal.
 - From **outside** your network (phone on cellular), check that `https://<your-ip>:5001`,
   `http://<your-ip>:5000` and `https://<your-ip>` all fail or time out. Only the two hostnames

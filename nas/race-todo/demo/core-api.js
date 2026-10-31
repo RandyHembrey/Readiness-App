@@ -52,7 +52,35 @@ window.RACE_MAKE_CORE = function (store, opts) {
         tasks: store.all('tasks').filter(function (t) { return byId[t.event_id]; }).sort(byDue)
           .map(function (t) { return Object.assign({ offset_days: null, template_id: null, notes: '', owner: '' }, t, { event_name: byId[t.event_id].name, event_date: byId[t.event_id].event_date }); }),
         template: template(),
+        departments: store.all('departments').sort(function (a, c) { return (a.sort_order || 0) - (c.sort_order || 0) || (a.name < c.name ? -1 : 1); }),
       };
+    }
+    if (method === 'POST' && url === '/api/departments') {
+      var dn = str(b.name, 80);
+      if (!dn) throw new Error('Name is required');
+      if (store.all('departments').some(function (x) { return x.name === dn; })) throw new Error('That department already exists');
+      var dep = { id: store.newId('d'), name: dn, manager: str(b.manager, 100), email: str(b.email, 300), notify: b.notify ? 1 : 0, full_report: b.full_report ? 1 : 0, sort_order: 999 };
+      await store.put('departments', dep); return dep;
+    }
+    if ((m = url.match(/^\/api\/departments\/([\w-]+)\/test-email$/))) throw new Error('Email is sent by the NAS version of this app');
+    if ((m = url.match(/^\/api\/departments\/([\w-]+)$/))) {
+      var od = store.get('departments', m[1]);
+      if (!od) throw new Error('Not found');
+      if (method === 'DELETE') { await store.del('departments', od.id); return { ok: true }; }
+      var nd = Object.assign({}, od);
+      if (b.name !== undefined) nd.name = str(b.name, 80) || od.name;
+      if (nd.name !== od.name && store.all('departments').some(function (x) { return x.name === nd.name; })) throw new Error('That department already exists');
+      if (b.manager !== undefined) nd.manager = str(b.manager, 100);
+      if (b.email !== undefined) nd.email = str(b.email, 300);
+      if (b.notify !== undefined) nd.notify = b.notify ? 1 : 0;
+      if (b.full_report !== undefined) nd.full_report = b.full_report ? 1 : 0;
+      await store.put('departments', nd);
+      if (nd.name !== od.name) {   // re-point everything the department owns
+        var moved = store.all('tasks').filter(function (x) { return x.owner === od.name; }).map(function (x) { return ['tasks', Object.assign(x, { owner: nd.name })]; })
+          .concat(store.all('template').filter(function (x) { return x.owner === od.name; }).map(function (x) { return ['template', Object.assign(x, { owner: nd.name })]; }));
+        await inBatches(moved, 8, function (r) { return store.put(r[0], r[1]); });
+      }
+      return nd;
     }
     if (method === 'POST' && url === '/api/events') {
       if (!str(b.name) || !isYmd(b.event_date)) throw new Error('Name and event date are required');

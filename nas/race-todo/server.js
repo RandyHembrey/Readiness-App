@@ -58,6 +58,16 @@ CREATE TABLE IF NOT EXISTS event_tasks (
   sort_order INTEGER NOT NULL DEFAULT 0
 );
 CREATE INDEX IF NOT EXISTS event_tasks_event_idx ON event_tasks(event_id);
+CREATE TABLE IF NOT EXISTS departments (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  name TEXT NOT NULL UNIQUE,                 -- matches event_tasks.owner / template_tasks.owner
+  manager TEXT NOT NULL DEFAULT '',
+  email TEXT NOT NULL DEFAULT '',            -- comma-separated allowed
+  notify INTEGER NOT NULL DEFAULT 0,         -- weekly report + daily reminders by email
+  full_report INTEGER NOT NULL DEFAULT 0,    -- also receives the all-department weekly report
+  sort_order INTEGER NOT NULL DEFAULT 0
+);
+CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT);
 `);
 
 const hasCol = (t, c) => db.prepare(`PRAGMA table_info(${t})`).all().some((x) => x.name === c);
@@ -67,7 +77,12 @@ if (!hasCol('event_tasks', 'offset_days')) db.exec('ALTER TABLE event_tasks ADD 
 if (!hasCol('event_tasks', 'template_id')) db.exec('ALTER TABLE event_tasks ADD COLUMN template_id INTEGER');
 
 // Seed the standard checklist the first time the app starts.
-const { TEMPLATE, DEMO_EVENTS } = require('./seed');
+const { TEMPLATE, DEMO_EVENTS, DEPARTMENTS } = require('./seed');
+const REPORT = require('./public/report.js');
+if (db.prepare('SELECT COUNT(*) AS n FROM departments').get().n === 0) {
+  const ins = db.prepare('INSERT INTO departments (name, manager, full_report, sort_order) VALUES (?,?,?,?)');
+  DEPARTMENTS.forEach((d, i) => ins.run(d.name, d.manager || '', d.full_report ? 1 : 0, i));
+}
 if (db.prepare('SELECT COUNT(*) AS n FROM template_tasks').get().n === 0) {
   const ins = db.prepare('INSERT INTO template_tasks (category, offset_days, title, owner, sort_order) VALUES (?,?,?,?,?)');
   TEMPLATE.forEach((s, i) => ins.run(s[0], s[1], s[2], s[3] || '', i));
@@ -200,7 +215,8 @@ const routes = {
     const tasks = db.prepare(`SELECT t.*, e.name AS event_name, e.event_date FROM event_tasks t JOIN events e ON e.id = t.event_id
                               ORDER BY t.due_date IS NULL, t.due_date, t.sort_order, t.id`).all();
     const template = db.prepare(TEMPLATE_ORDER).all();
-    return { events, tasks, template };
+    const departments = db.prepare('SELECT * FROM departments ORDER BY sort_order, id').all();
+    return { events, tasks, template, departments };
   },
 
   'POST /api/events': async (req) => {
@@ -314,6 +330,51 @@ const routes = {
     return { ok: true };
   },
 
+  'POST /api/departments': async (req) => {
+    const b = await readJson(req);
+    const name = str(b.name, 80);
+    if (!name) return [400, { error: 'Name is required' }];
+    if (db.prepare('SELECT 1 FROM departments WHERE name = ?').get(name)) return [400, { error: 'That department already exists' }];
+    const { lastInsertRowid } = db.prepare('INSERT INTO departments (name, manager, email, notify, full_report, sort_order) VALUES (?,?,?,?,?,?)')
+      .run(name, str(b.manager, 100), str(b.email, 300), b.notify ? 1 : 0, b.full_report ? 1 : 0, 999);
+    return db.prepare('SELECT * FROM departments WHERE id = ?').get(lastInsertRowid);
+  },
+
+  // Renaming a department re-points every task and standard task it owns.
+  'PATCH /api/departments/:id': async (req, id) => {
+    const b = await readJson(req);
+    const d = db.prepare('SELECT * FROM departments WHERE id = ?').get(id);
+    if (!d) return [404, { error: 'Not found' }];
+    const name = b.name !== undefined ? str(b.name, 80) || d.name : d.name;
+    if (name !== d.name && db.prepare('SELECT 1 FROM departments WHERE name = ?').get(name)) return [400, { error: 'That department already exists' }];
+    return tx(() => {
+      db.prepare('UPDATE departments SET name=?, manager=?, email=?, notify=?, full_report=? WHERE id=?').run(
+        name, b.manager !== undefined ? str(b.manager, 100) : d.manager, b.email !== undefined ? str(b.email, 300) : d.email,
+        b.notify !== undefined ? (b.notify ? 1 : 0) : d.notify, b.full_report !== undefined ? (b.full_report ? 1 : 0) : d.full_report, id);
+      if (name !== d.name) {
+        db.prepare('UPDATE event_tasks SET owner = ? WHERE owner = ?').run(name, d.name);
+        db.prepare('UPDATE template_tasks SET owner = ? WHERE owner = ?').run(name, d.name);
+      }
+      return db.prepare('SELECT * FROM departments WHERE id = ?').get(id);
+    });
+  },
+
+  'DELETE /api/departments/:id': (req, id) => {
+    db.prepare('DELETE FROM departments WHERE id = ?').run(id);
+    return { ok: true };
+  },
+
+  // Send this department's weekly report (or the all-department report) right now.
+  'POST /api/departments/:id/test-email': async (req, id) => {
+    const d = db.prepare('SELECT * FROM departments WHERE id = ?').get(id);
+    if (!d) return [404, { error: 'Not found' }];
+    if (!MAIL.enabled) return [400, { error: 'Email is not configured on the server (SMTP_HOST / MAIL_FROM)' }];
+    if (!d.email) return [400, { error: 'Add an email address first' }];
+    const r = REPORT.weeklyReport(state(), d, reportOpts());
+    await sendMail(d.email, r.subject, r.text);
+    return { ok: true, to: d.email };
+  },
+
   // body: { template_ids?: [ids] (default: all), update_existing?: bool }
   'POST /api/events/:id/apply-template': async (req, id) => {
     const b = await readJson(req);
@@ -333,6 +394,82 @@ function match(method, url) {
     if (hit) return { fn: routes[key], id: hit[1] ? Number(hit[1]) : undefined };
   }
   return null;
+}
+
+// ---------- email notifications
+// Plain SMTP to a relay inside the stack (see docker-compose.yml "mailrelay"), which handles TLS/auth
+// to the real mail provider. Off unless SMTP_HOST and MAIL_FROM are set.
+const net = require('node:net');
+const DAYS = ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'];
+const MAIL = {
+  host: process.env.SMTP_HOST || '', port: Number(process.env.SMTP_PORT || 25), from: process.env.MAIL_FROM || '',
+  appUrl: process.env.APP_URL || '',
+  weeklyDay: DAYS.indexOf(String(process.env.WEEKLY_REPORT_DAY || 'mon').slice(0, 3).toLowerCase()),
+  hour: Number(process.env.NOTIFY_HOUR || 7),
+  daily: process.env.DAILY_REMINDERS !== '0',
+};
+MAIL.enabled = !!(MAIL.host && MAIL.from);
+MAIL.weeklyLabel = (DAYS[MAIL.weeklyDay] || 'mon') + ' ' + MAIL.hour + ':00';
+
+function state() { return routes['GET /api/state'](); }
+function reportOpts() { return { program: APP_TITLE, appUrl: MAIL.appUrl }; }
+function localYmd(d = new Date()) { return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0'); }
+const getMeta = (k) => db.prepare('SELECT value FROM meta WHERE key = ?').get(k)?.value;
+const setMeta = (k, v) => db.prepare('INSERT INTO meta (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value').run(k, v);
+
+function sendMail(to, subject, text) {
+  const rcpts = String(to).split(/[,;\s]+/).filter((x) => /^[^@\s]+@[^@\s]+$/.test(x));
+  if (!rcpts.length) return Promise.reject(new Error('No valid recipient'));
+  const enc = (v) => (/^[\x20-\x7e]*$/.test(v) ? v : '=?UTF-8?B?' + Buffer.from(v).toString('base64') + '?=');
+  const body = text.replace(/\r?\n/g, '\r\n').replace(/^\./gm, '..');
+  const msg = [`From: ${enc(APP_TITLE)} <${MAIL.from}>`, `To: ${rcpts.join(', ')}`, `Subject: ${enc(subject)}`, `Date: ${new Date().toUTCString()}`,
+    `Message-ID: <${crypto.randomUUID()}@${MAIL.from.split('@')[1] || 'localhost'}>`, 'MIME-Version: 1.0',
+    'Content-Type: text/plain; charset=utf-8', 'Content-Transfer-Encoding: 8bit', '', body].join('\r\n');
+  const steps = [`EHLO race-todo`, `MAIL FROM:<${MAIL.from}>`, ...rcpts.map((r) => `RCPT TO:<${r}>`), 'DATA', msg + '\r\n.', 'QUIT'];
+  return new Promise((resolve, reject) => {
+    const sock = net.createConnection({ host: MAIL.host, port: MAIL.port });
+    let buf = '', i = -1;
+    const fail = (e) => { sock.destroy(); reject(e instanceof Error ? e : new Error(e)); };
+    sock.setTimeout(20000, () => fail('SMTP timeout'));
+    sock.on('error', fail);
+    sock.on('data', (chunk) => {
+      buf += chunk;
+      const lines = buf.split('\r\n'); buf = lines.pop();
+      for (const l of lines) {
+        if (/^\d{3}-/.test(l)) continue;                    // multi-line reply continues
+        const code = Number(l.slice(0, 3));
+        if (code >= 400) return fail('SMTP ' + l);
+        i++;
+        if (i >= steps.length) { sock.end(); return resolve(); }
+        sock.write(steps[i] + '\r\n');
+      }
+    });
+  });
+}
+
+async function runNotifications(now = new Date()) {
+  if (!MAIL.enabled || now.getHours() < MAIL.hour) return;
+  const today = localYmd(now), st = state(), opts = { ...reportOpts(), today };
+  const depts = st.departments.filter((d) => d.notify && d.email);
+  const jobs = [];
+  if (now.getDay() === MAIL.weeklyDay && getMeta('weekly') !== today) {
+    setMeta('weekly', today);
+    depts.forEach((d) => { const r = REPORT.weeklyReport(st, d, opts); jobs.push([d.email, r.subject, r.text]); });
+    depts.filter((d) => d.full_report).forEach((d) => { const r = REPORT.weeklyReport(st, null, opts); jobs.push([d.email, r.subject, r.text]); });
+  }
+  if (MAIL.daily && getMeta('daily') !== today) {
+    setMeta('daily', today);
+    depts.forEach((d) => { const r = REPORT.dailyReminder(st, d, opts); if (r) jobs.push([d.email, r.subject, r.text]); });
+  }
+  for (const [to, subject, text] of jobs) {
+    try { await sendMail(to, subject, text); console.log('emailed', to, '-', subject); }
+    catch (e) { console.error('email to', to, 'failed:', e.message); }
+  }
+}
+if (MAIL.enabled) {
+  setInterval(() => runNotifications().catch((e) => console.error(e)), 10 * 60e3);
+  setTimeout(() => runNotifications().catch((e) => console.error(e)), 5000);
+  console.log(`Email on: weekly reports ${MAIL.weeklyLabel}${MAIL.daily ? ', daily reminders ' + MAIL.hour + ':00' : ''} via ${MAIL.host}:${MAIL.port}`);
 }
 
 // ---------- static files
@@ -370,7 +507,7 @@ const server = http.createServer(async (req, res) => {
     if (pathname === '/api/logout') {
       return send(res, 200, { ok: true }, { 'Set-Cookie': 'rt_session=; HttpOnly; Path=/; Max-Age=0' });
     }
-    if (pathname === '/api/me') return send(res, 200, { authed: authed(req), passwordRequired: !!APP_PASSWORD, title: APP_TITLE });
+    if (pathname === '/api/me') return send(res, 200, { authed: authed(req), passwordRequired: !!APP_PASSWORD, title: APP_TITLE, email: MAIL.enabled ? { from: MAIL.from, weekly: MAIL.weeklyLabel, daily: MAIL.daily } : null });
 
     if (pathname.startsWith('/api/')) {
       if (!authed(req)) return send(res, 401, { error: 'Not signed in' });

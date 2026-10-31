@@ -7,6 +7,7 @@ const footer = '<div style="max-width:1100px;margin:-40px auto 30px;padding:0 16
 const out = html
   .replace('<!doctype html>', '<!DOCTYPE html>')
   .replace('<div id="app"></div>', '<div id="app"></div>\n' + footer)
+  .replace('<script src="report.js"></script>\n', inline('public/report.js'))
   .replace('<script>\n"use strict";', '<script>window.RACE_DEFER_BACKEND = true;</script>\n' + inline('seed.js') + inline('demo/core-api.js') + inline('demo/demo-api.js') + inline('demo/db-api.js') + '<script>\n"use strict";')
   .replace('<title>Race Event To-Do</title>', '<title>USF Pro Championships · Event Readiness</title>');
 const dest = process.argv[2] || path.join(root, 'demo/race-todo-artifact.html');

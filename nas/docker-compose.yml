@@ -16,6 +16,7 @@ networks:
   edge: {}                 # Caddy <-> internet (needed for HTTPS certificates)
   apps:
     internal: true         # apps <-> Caddy only; no route to LAN or internet
+  mail: {}                 # mail relay <-> internet (outbound SMTP to your mail provider only)
 
 services:
   caddy:
@@ -55,6 +56,15 @@ services:
       APP_PASSWORD: ${RACE_TODO_PASSWORD:?set RACE_TODO_PASSWORD in .env}
       APP_TITLE: ${RACE_TODO_TITLE:-USF Pro Championships · Event Readiness}
       DEMO_DATA: ${RACE_TODO_DEMO_DATA:-0}   # 1 = load a mock season into an empty database
+      # Email notifications (weekly reports + daily reminders). Off until MAIL_FROM is set.
+      SMTP_HOST: mailrelay
+      SMTP_PORT: "587"
+      MAIL_FROM: ${MAIL_FROM:-}
+      APP_URL: https://races.hembrey.com
+      WEEKLY_REPORT_DAY: ${WEEKLY_REPORT_DAY:-mon}
+      NOTIFY_HOUR: ${NOTIFY_HOUR:-7}
+      DAILY_REMINDERS: ${DAILY_REMINDERS:-1}
+      TZ: ${TZ:-America/New_York}
     volumes:
       - ./race-todo:/app:ro
       - ./volumes/race-todo:/data
@@ -69,3 +79,19 @@ services:
       test: ["CMD", "wget", "-qO-", "http://127.0.0.1:3000/healthz"]
       interval: 30s
       timeout: 3s
+
+  # Outbound-only mail relay. Apps hand it mail over the internal network; it alone may reach
+  # your mail provider (port 587, authenticated, TLS). Nothing reaches it from outside.
+  mailrelay:
+    image: boky/postfix:latest
+    container_name: hembrey-mailrelay
+    restart: unless-stopped
+    environment:
+      RELAYHOST: ${SMTP_RELAY_HOST:-[smtp.gmail.com]:587}
+      RELAYHOST_USERNAME: ${SMTP_RELAY_USER:-}
+      RELAYHOST_PASSWORD: ${SMTP_RELAY_PASSWORD:-}
+      ALLOWED_SENDER_DOMAINS: ${MAIL_SENDER_DOMAIN:-hembrey.com}
+      POSTFIX_myhostname: mail.hembrey.com
+    networks: [apps, mail]
+    security_opt: ["no-new-privileges:true"]
+    mem_limit: 128m

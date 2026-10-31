@@ -13,7 +13,7 @@ window.RACE_BACKEND_READY = (async function () {
     return;
   }
 
-  var cache = { template: {}, events: {}, tasks: {} };
+  var cache = { template: {}, events: {}, tasks: {}, departments: {} };
   var chains = {};
   function uid(p) { return p + '-' + Date.now().toString(36) + Math.random().toString(36).slice(2, 7); }
   function clean(o) { var r = {}; for (var k in o) if (k !== 'id' && k !== 'event_name') r[k] = o[k] === undefined ? null : o[k]; return r; }
@@ -47,13 +47,13 @@ window.RACE_BACKEND_READY = (async function () {
     window.RACE_BACKEND_NOTE = 'Shared data is taking a while to load; what you see may be incomplete.';
     resolveFirst();
   }, 10000);
-  ['template', 'events', 'tasks'].forEach(function (coll) {
+  ['template', 'events', 'tasks', 'departments'].forEach(function (coll) {
     var seen = false;
     db.collection(coll).onSnapshot(function (snap) {
       var next = {};
       snap.docs.forEach(function (d) { if (d.exists) { var o = Object.assign({}, d.data()); o.id = d.id; next[d.id] = o; } });
       cache[coll] = next;
-      if (!seen && !snap.metadata.fromCache) { seen = true; if (++firstLoads === 3) { clearTimeout(timeout); resolveFirst(); } }
+      if (!seen && !snap.metadata.fromCache) { seen = true; if (++firstLoads === 4) { clearTimeout(timeout); resolveFirst(); } }
       clearTimeout(changeTimer);
       changeTimer = setTimeout(function () { if (window.RACE_ON_REMOTE_CHANGE) window.RACE_ON_REMOTE_CHANGE(); }, 250);
     }, function (e) {

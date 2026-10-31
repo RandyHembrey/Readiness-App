@@ -18,10 +18,10 @@
   *{box-sizing:border-box}
   body{margin:0;background:var(--bg);color:var(--fg);font:15px/1.45 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif}
   #app{max-width:1100px;margin:0 auto;padding:0 16px 64px}
-  header{display:flex;align-items:center;gap:16px;flex-wrap:wrap;padding:14px 0;border-bottom:1px solid var(--border);margin-bottom:18px}
-  header h1{font-size:1.15rem;margin:0;margin-right:auto}
+  header{display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding:14px 0;border-bottom:1px solid var(--border);margin-bottom:18px}
+  header h1{font-size:1.05rem;margin:0;margin-right:auto}
   nav{display:flex;gap:4px}
-  nav button{background:none;border:none;color:var(--fg-2);padding:7px 12px;border-radius:8px;cursor:pointer;font-size:.9rem}
+  nav button{background:none;border:none;color:var(--fg-2);padding:7px 10px;border-radius:8px;cursor:pointer;font-size:.9rem}
   nav button.active{background:var(--panel);color:var(--fg);box-shadow:0 0 0 1px var(--border);font-weight:600}
   h2{font-size:1rem;margin:0 0 10px}
   .muted{color:var(--muted);font-size:.85rem}
@@ -94,6 +94,9 @@
   tr.done-row input{color:var(--muted);text-decoration:line-through}
   .pick-list{max-height:50vh;overflow:auto;margin:8px 0}
   .pick-list label{display:flex;gap:8px;align-items:center;font-size:.88rem;color:var(--fg);padding:5px 0;border-top:1px solid var(--grid);margin:0}
+  pre.report{white-space:pre-wrap;font:13px/1.5 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;background:var(--panel-2);border-radius:10px;padding:14px;margin:0;box-shadow:inset 0 0 0 1px var(--border);max-height:70vh;overflow:auto}
+  .switch{display:inline-flex;align-items:center;gap:6px;font-size:.82rem;color:var(--fg-2);margin:0;cursor:pointer}
+  table.dept td.num{font-variant-numeric:tabular-nums;color:var(--fg-2);font-size:.85rem;white-space:nowrap}
   .sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0)}
 </style>
 </head>
@@ -102,6 +105,7 @@
 <div id="toast"></div>
 <dialog id="dlg"></dialog>
 <dialog id="dlg2"></dialog>
+<script src="report.js"></script>
 <script>
 "use strict";
 var S = { view: "dashboard", eventId: null, data: null, filter: "open", catFilter: "", ownerFilter: "" };
@@ -168,7 +172,7 @@ function toggleTask(t, done){
 // ---------- shell
 function render(){
   app.innerHTML = "";
-  var tabs = [["dashboard","Dashboard"],["events","Events"],["template","Standard checklist"]];
+  var tabs = [["dashboard","Dashboard"],["events","Events"],["template","Standard checklist"],["team","Team"],["reports","Reports"]];
   app.appendChild(h("header",{},[
     h("h1",{},"🏁 "+(S.title||"Race Event To-Do")),
     h("nav",{}, tabs.map(function(t){ return h("button",{class: (S.view===t[0] || (S.view==="event"&&t[0]==="events")) ? "active":"", onclick:function(){ S.view=t[0]; S.eventId=null; location.hash=t[0]; render(); window.scrollTo(0,0); }}, t[1]); })),
@@ -182,6 +186,8 @@ function render(){
   else if (S.view==="events") renderEvents(main);
   else if (S.view==="event") renderEvent(main);
   else if (S.view==="template") renderTemplate(main);
+  else if (S.view==="team") renderTeam(main);
+  else if (S.view==="reports") renderReports(main);
 }
 
 // ---------- dashboard
@@ -209,6 +215,7 @@ function renderDashboard(root){
   }
 
   if (next) root.appendChild(areaCard(next));
+  if (depts().length) root.appendChild(deptCard(tasks));
 
   // open tasks due per week
   root.appendChild(h("div",{class:"card"},[
@@ -241,6 +248,21 @@ function areaCard(ev){
         h("div",{class:"meter-label"},[h("span",{},d+" / "+ct.length+" done"), od ? h("span",{class:"status overdue"},[h("span",{class:"ico","aria-hidden":"true"},"!"),od+" overdue"]) : h("span",{},pct+"%")])
       ]);
     }))
+  ]);
+}
+function deptCard(tasks){
+  return h("div",{class:"card"},[
+    h("div",{style:"display:flex;justify-content:space-between;align-items:baseline;gap:10px"},[h("h2",{},"By department"),
+      h("a",{href:"#reports",onclick:function(e){ e.preventDefault(); S.view="reports"; location.hash="reports"; render(); }},"Weekly reports →")]),
+    h("table",{class:"tmpl dept"},[h("thead",{},h("tr",{},["Department","Manager","Overdue","Due in 7 days","Open","Done"].map(function(x){return h("th",{},x);}))),
+      h("tbody",{}, depts().map(function(d){
+        var mine = tasks.filter(function(t){ return t.owner===d.name; });
+        var od = mine.filter(function(t){return taskState(t)==="overdue";}).length, sn = mine.filter(function(t){return taskState(t)==="soon";}).length;
+        return h("tr",{style:"cursor:pointer",onclick:function(){ S.reportDept=d.id; S.view="reports"; location.hash="reports"; render(); }},[
+          h("td",{},h("b",{},d.name)), h("td",{},d.manager||h("span",{class:"muted"},"to be named")),
+          h("td",{class:"num"}, od ? h("span",{class:"status overdue"},[h("span",{class:"ico","aria-hidden":"true"},"!"),String(od)]) : "0"),
+          h("td",{class:"num"},String(sn)), h("td",{class:"num"},String(mine.filter(function(t){return !t.done;}).length)), h("td",{class:"num"},String(mine.filter(function(t){return t.done;}).length))]);
+      }))])
   ]);
 }
 function tile(label, value, sub){ return h("div",{class:"tile"},[h("div",{class:"label"},label),h("div",{class:"value"},String(value)),h("div",{class:"sub"},sub)]); }
@@ -302,6 +324,10 @@ function eventRow(ev){
   ]);
 }
 
+function depts(){ return (S.data && S.data.departments) || []; }
+function deptOf(name){ return depts().find(function(d){ return d.name===name; }); }
+function ownerLabel(name){ var d=deptOf(name); return name + (d && d.manager ? " · "+d.manager : ""); }
+function deptList(){ return h("datalist",{id:"depts"}, depts().map(function(d){ return h("option",{value:d.name}, d.manager||""); })); }
 function leadLabel(off){
   if (off == null) return "";
   if (off === 0) return "race day";
@@ -336,7 +362,7 @@ function taskRow(t, showEvent){
       h("div",{class:"title"},t.title),
       h("div",{class:"meta"},[
         showEvent ? h("a",{href:"#",onclick:function(e){e.preventDefault(); openEvent(t.event_id);}}, t.event_name) : h("span",{class:"pill"},t.category),
-        h("span",{title: t.offset_days==null ? "Fixed date" : "Lead time: "+leadLabel(t.offset_days)},fmtDate(t.due_date)+(t.offset_days!=null && !showEvent ? " · "+leadLabel(t.offset_days) : "")), statusChip(t), t.owner ? h("span",{},"👤 "+t.owner) : null,
+        h("span",{title: t.offset_days==null ? "Fixed date" : "Lead time: "+leadLabel(t.offset_days)},fmtDate(t.due_date)+(t.offset_days!=null && !showEvent ? " · "+leadLabel(t.offset_days) : "")), statusChip(t), t.owner ? h("span",{},"👤 "+ownerLabel(t.owner)) : null,
         t.notes ? h("span",{title:t.notes},"📝 note") : null
       ])
     ]),
@@ -387,7 +413,7 @@ function renderEvent(root){
   // filters
   var sel = h("select",{onchange:function(){ S.filter=sel.value; render(); }},[["open","Open tasks"],["overdue","Overdue"],["soon","Due in 7 days"],["done","Completed"],["all","All tasks"]].map(function(o){ return h("option",{value:o[0],selected:S.filter===o[0]},o[1]); }));
   var owners = Array.from(new Set(tasks.map(function(t){return t.owner;}).filter(Boolean))).sort();
-  var osel = h("select",{onchange:function(){ S.ownerFilter=osel.value; render(); }},[h("option",{value:""},"All owners")].concat(owners.map(function(o){return h("option",{value:o,selected:S.ownerFilter===o},o);})));
+  var osel = h("select",{onchange:function(){ S.ownerFilter=osel.value; render(); }},[h("option",{value:""},"All departments")].concat(owners.map(function(o){return h("option",{value:o,selected:S.ownerFilter===o},ownerLabel(o));})));
   var csel = h("select",{onchange:function(){ S.catFilter=csel.value; render(); }},[h("option",{value:""},"All categories")].concat(cats.map(function(c){return h("option",{value:c,selected:S.catFilter===c},c);})));
   var shown = tasks.filter(function(t){
     var s = taskState(t);
@@ -423,14 +449,14 @@ function renderManage(root, ev, tasks, cats){
       h("td",{style:"width:140px"},inp("category",{list:"cats","aria-label":"Category"})),
       h("td",{style:"width:300px"},tc.el),
       h("td",{class:"due"},fmtDate(t.due_date)),
-      h("td",{style:"width:120px"},inp("owner",{"aria-label":"Owner"})),
+      h("td",{style:"width:140px"},inp("owner",{"aria-label":"Department",list:"depts"})),
       h("td",{style:"width:80px"},h("span",{class:"pill "+(std?"std":"adhoc"),title:std?"From the standard checklist":"Added for this event only"},std?"Standard":"Ad-hoc")),
       h("td",{style:"width:40px"},h("button",{class:"btn ghost",title:"Remove from this event",onclick:function(){ askConfirm("Remove “"+t.title+"” from "+ev.name+"?"+(std?" (It stays on the standard checklist.)":""),"Remove").then(function(ok){ if(ok) api("DELETE","/api/tasks/"+t.id).then(load).catch(function(e){toast(e.message);}); }); }},"✕"))
     ]));
   });
 
   // ad-hoc add row
-  var nt = { title:h("input",{id:"adhoc-title",placeholder:"New ad-hoc task for this event…"}), cat:h("input",{placeholder:"Category",list:"cats"}), owner:h("input",{placeholder:"Owner"}) };
+  var nt = { title:h("input",{id:"adhoc-title",placeholder:"New ad-hoc task for this event…"}), cat:h("input",{placeholder:"Category",list:"cats"}), owner:h("input",{placeholder:"Department",list:"depts"}) };
   var ntc = timingControl(-14, null, true);
   var addForm = h("form",{style:"display:grid;grid-template-columns:1fr 140px 300px 120px auto;gap:8px;align-items:center;margin-top:12px",onsubmit:function(e){
       e.preventDefault(); if(!nt.title.value.trim()) return;
@@ -439,6 +465,7 @@ function renderManage(root, ev, tasks, cats){
     [nt.title, nt.cat, ntc.el, nt.owner, h("button",{class:"btn",type:"submit"},"Add")]);
 
   root.appendChild(h("div",{class:"card"},[
+    deptList(),
     h("datalist",{id:"cats"}, Array.from(new Set(cats.concat(tmpl.map(function(t){return t.category;})))).sort().map(function(c){return h("option",{value:c});})),
     h("div",{class:"toolbar"},[
       h("h2",{style:"margin:0;margin-right:auto"},"Manage tasks · "+rows.length+" ("+nStd+" standard, "+(rows.length-nStd)+" ad-hoc)"),
@@ -448,7 +475,7 @@ function renderManage(root, ev, tasks, cats){
           api("POST","/api/events/"+ev.id+"/apply-template",{update_existing:true}).then(function(r){ toast(r.added+" added, "+r.updated+" updated"); load(); }).catch(function(e){toast(e.message);}); }); }},"Update from standard")
     ]),
     h("p",{class:"muted",style:"margin:-4px 0 6px"},"Edit anything inline; changes save as you go. Lead times count from race day, so moving the race date moves these due dates with it. Use “fixed date” for a deadline that doesn’t depend on the race."),
-    h("div",{style:"overflow-x:auto"},h("table",{class:"tmpl manage"},[h("thead",{},h("tr",{},["Task","Category","Due (lead time)","","Owner","Type",""].map(function(x){return h("th",{},x);}))), tbody])),
+    h("div",{style:"overflow-x:auto"},h("table",{class:"tmpl manage"},[h("thead",{},h("tr",{},["Task","Category","Due (lead time)","","Department","Type",""].map(function(x){return h("th",{},x);}))), tbody])),
     h("h2",{style:"margin:18px 0 0;font-size:.92rem"},"Add an ad-hoc task"),
     addForm
   ]));
@@ -470,6 +497,57 @@ function openAddStandard(ev, missing){
   dlg.showModal();
 }
 
+// ---------- team (departments & managers)
+function renderTeam(root){
+  var tbody = h("tbody");
+  depts().forEach(function(d){
+    function save(body){ return api("PATCH","/api/departments/"+d.id,body).then(function(){ toast("Saved"); return load(); }).catch(function(e){ toast(e.message); load(); }); }
+    function inp(field, attrs){ var i=h("input",Object.assign({value:d[field]||""},attrs||{})); i.addEventListener("change",function(){ var b={}; b[field]=i.value; save(b); }); return i; }
+    function tog(field, label){ var c=h("input",{type:"checkbox"}); c.checked=!!d[field]; c.addEventListener("change",function(){ var b={}; b[field]=c.checked; save(b); }); return h("label",{class:"switch"},[c,label]); }
+    var n = S.data.tasks.filter(function(t){ return t.owner===d.name; }).length + S.data.template.filter(function(t){ return t.owner===d.name; }).length;
+    tbody.appendChild(h("tr",{},[
+      h("td",{style:"width:180px"},inp("name",{"aria-label":"Department"})),
+      h("td",{style:"width:150px"},inp("manager",{placeholder:"Manager","aria-label":"Manager"})),
+      h("td",{},inp("email",{type:"email",placeholder:"name@example.com (comma-separate several)","aria-label":"Email"})),
+      h("td",{style:"width:210px"},h("div",{style:"display:grid;gap:3px"},[tog("notify","Weekly report + reminders"), tog("full_report","Also all-department report")])),
+      h("td",{style:"width:120px"}, S.email && d.email ? h("button",{class:"btn secondary",style:"padding:5px 10px",onclick:function(){ api("POST","/api/departments/"+d.id+"/test-email").then(function(r){ toast("Sent to "+r.to); }).catch(function(e){ toast(e.message); }); }},"Send test") : null),
+      h("td",{style:"width:40px"},h("button",{class:"btn ghost",title:n?"Reassign its "+n+" task(s) first":"Remove",disabled:!!n,onclick:function(){ askConfirm("Remove the "+d.name+" department?","Remove").then(function(ok){ if(ok) api("DELETE","/api/departments/"+d.id).then(load).catch(function(e){toast(e.message);}); }); }},"✕"))
+    ]));
+  });
+  var f = { name:h("input",{placeholder:"New department"}), mgr:h("input",{placeholder:"Manager"}) };
+  root.appendChild(h("div",{class:"card"},[
+    h("h2",{},"Team · departments & managers"),
+    h("p",{class:"muted",style:"margin-top:-4px"},"Every task is owned by a department, and its manager is responsible for it. Renaming a department updates all of its tasks. Names and roles are placeholders until deployment."),
+    h("p",{style:"font-size:.85rem;margin:0 0 10px;padding:10px 12px;border-radius:8px;background:var(--panel-2)"}, S.email
+      ? "📧 Email is on. Weekly reports go out "+S.email.weekly.replace(/^(\w{3})/,function(x){return {sun:"Sunday",mon:"Monday",tue:"Tuesday",wed:"Wednesday",thu:"Thursday",fri:"Friday",sat:"Saturday"}[x]||x;})+(S.email.daily?", plus a daily reminder when something is due within a day or overdue":"")+". Sent from "+S.email.from+"."
+      : "📧 Email notifications are switched on when the app moves to the NAS. Each manager will get a weekly status report and a daily reminder for anything due within a day or overdue. You can preview exactly what they’ll receive under Reports."),
+    h("div",{style:"overflow-x:auto"},h("table",{class:"tmpl"},[h("thead",{},h("tr",{},["Department","Manager","Email","Notifications","",""].map(function(x){return h("th",{},x);}))), tbody])),
+    h("form",{style:"display:grid;grid-template-columns:180px 150px auto;gap:8px;margin-top:12px",onsubmit:function(e){ e.preventDefault(); if(!f.name.value.trim()) return;
+      api("POST","/api/departments",{name:f.name.value,manager:f.mgr.value}).then(function(){ toast("Added"); load(); }).catch(function(e){ toast(e.message); }); }},
+      [f.name, f.mgr, h("button",{class:"btn",type:"submit",style:"justify-self:start"},"Add department")])
+  ]));
+}
+
+// ---------- reports
+function renderReports(root){
+  var ds = depts(), sel = S.reportDept || "all", kind = S.reportKind || "weekly";
+  var dept = sel==="all" ? null : ds.find(function(d){ return d.id===sel; }) || null;
+  var picker = h("select",{onchange:function(){ S.reportDept = picker.value==="all" ? "all" : (ds.find(function(d){ return String(d.id)===picker.value; })||{}).id; render(); }},
+    [h("option",{value:"all",selected:!dept},"All departments (program summary)")].concat(ds.map(function(d){ return h("option",{value:String(d.id),selected:dept&&dept.id===d.id},d.name+(d.manager?" — "+d.manager:"")); })));
+  var kindSel = h("div",{class:"seg"},[["weekly","Weekly report"],["daily","Daily reminder"]].map(function(o){
+    return h("button",{class:kind===o[0]?"active":"",disabled:o[0]==="daily"&&!dept,onclick:function(){ S.reportKind=o[0]; render(); }},o[1]); }));
+  var opts = { program: S.title, appUrl: location.protocol.indexOf("http")===0 && location.host.indexOf("claude")===-1 ? location.origin : "" };
+  var r = kind==="daily" && dept ? RACE_REPORT.dailyReminder(S.data, dept, opts) : RACE_REPORT.weeklyReport(S.data, dept, opts);
+  var recipients = dept ? (dept.email ? dept.email : "no email yet") : ds.filter(function(d){ return d.full_report; }).map(function(d){ return (d.manager||d.name)+(d.email?" <"+d.email+">":""); }).join(", ") || "nobody yet";
+  var text = r ? "Subject: "+r.subject+"\n\n"+r.text : "Nothing due within a day or overdue for "+dept.name+", so no reminder would be sent today.";
+  root.appendChild(h("div",{class:"card"},[
+    h("div",{class:"toolbar"},[h("h2",{style:"margin:0;margin-right:auto"},"Status reports"), kindSel, picker,
+      h("button",{class:"btn",onclick:function(){ var p=navigator.clipboard&&navigator.clipboard.writeText(text); if(p&&p.then) p.then(function(){ toast("Copied"); },function(){ toast("Couldn’t copy; select the text instead"); }); else toast("Select the text to copy"); }},"Copy")]),
+    h("p",{class:"muted",style:"margin:-4px 0 10px"},(dept ? "Goes to "+(dept.manager||dept.name)+" ("+recipients+")" : "Goes to "+recipients)+(S.email ? "" : " · preview only until the app runs on the NAS")+"."),
+    h("pre",{class:"report"},text)
+  ]));
+}
+
 // ---------- template
 function renderTemplate(root){
   var rows = S.data.template;
@@ -480,11 +558,11 @@ function renderTemplate(root){
       h("td",{},inp("title")), h("td",{style:"width:150px"},inp("category")),
       h("td",{style:"width:240px"},(function(){ var tc=timingControl(t.offset_days,null,false);
         onChangeAll(tc.inputs,function(){ api("PATCH","/api/template/"+t.id,{offset_days:tc.value().offset_days}).then(function(n){ Object.assign(t,n); toast("Saved"); }); }); return tc.el; })()),
-      h("td",{style:"width:130px"},inp("owner")),
+      h("td",{style:"width:150px"},inp("owner",{list:"depts"})),
       h("td",{style:"width:40px"},h("button",{class:"btn ghost",title:"Remove",onclick:function(){ askConfirm("Remove “"+t.title+"” from the standard checklist? Existing events keep their copy.","Remove").then(function(ok){ if(ok) api("DELETE","/api/template/"+t.id).then(load).catch(function(e){toast(e.message);}); }); }},"✕"))
     ]));
   });
-  var f = { title:h("input",{placeholder:"New standard task…"}), cat:h("input",{placeholder:"Category"}), own:h("input",{placeholder:"Owner"}) };
+  var f = { title:h("input",{placeholder:"New standard task…"}), cat:h("input",{placeholder:"Category"}), own:h("input",{placeholder:"Department",list:"depts"}) };
   var ftc = timingControl(-30, null, false);
   root.appendChild(h("div",{class:"card"},[
     h("h2",{},"Standard checklist"),
@@ -497,7 +575,8 @@ function renderTemplate(root){
           var a=0,u=0; evs.reduce(function(p,e){ return p.then(function(){ return api("POST","/api/events/"+e.id+"/apply-template",{update_existing:true}).then(function(r){ a+=r.added; u+=r.updated; }); }); }, Promise.resolve())
             .then(function(){ toast(a+" added, "+u+" updated across "+evs.length+" event(s)"); load(); }).catch(function(e){ toast(e.message); }); }); }},"Apply to upcoming events")
     ]),
-    h("div",{style:"overflow-x:auto"},h("table",{class:"tmpl"},[h("thead",{},h("tr",{},[h("th",{},"Task"),h("th",{},"Category"),h("th",{},"Lead time"),h("th",{},"Default owner"),h("th",{})])), tbody])),
+    deptList(),
+    h("div",{style:"overflow-x:auto"},h("table",{class:"tmpl"},[h("thead",{},h("tr",{},[h("th",{},"Task"),h("th",{},"Category"),h("th",{},"Lead time"),h("th",{},"Department"),h("th",{})])), tbody])),
     h("form",{style:"display:grid;grid-template-columns:2fr 1fr 240px 130px auto;gap:8px;align-items:center;margin-top:12px",onsubmit:function(e){ e.preventDefault(); if(!f.title.value.trim())return;
       api("POST","/api/template",{title:f.title.value,category:f.cat.value,offset_days:ftc.value().offset_days,owner:f.own.value}).then(function(){ toast("Added"); load(); }).catch(function(e){toast(e.message);}); }},
       [f.title,f.cat,ftc.el,f.own,h("button",{class:"btn",type:"submit"},"Add")])
@@ -539,8 +618,8 @@ function openEditEvent(ev){
   }, h("button",{class:"btn danger",type:"button",onclick:function(){ askConfirm("Delete “"+ev.name+"” and all its tasks? This cannot be undone.").then(function(ok){ if(ok) api("DELETE","/api/events/"+ev.id).then(function(){ dlg.close(); S.view="events"; location.hash="events"; load(); }).catch(function(e){toast(e.message);}); }); }},"Delete"));
 }
 function openTaskEditor(t){
-  var title=h("input",{value:t.title}), tc=timingControl(t.offset_days,t.due_date,true), cat=h("input",{value:t.category}), owner=h("input",{value:t.owner}), notes=h("textarea",{rows:3}); notes.value=t.notes||"";
-  modal("Edit task",[["Task",title],["Due (lead time from race day, or a fixed date)",tc.el],["Category",cat],["Owner",owner],["Notes",notes]], function(){
+  var title=h("input",{value:t.title}), tc=timingControl(t.offset_days,t.due_date,true), cat=h("input",{value:t.category}), owner=h("input",{value:t.owner,list:"depts"}), notes=h("textarea",{rows:3}); notes.value=t.notes||"";
+  modal("Edit task",[["Task",title],["Due (lead time from race day, or a fixed date)",tc.el],["Category",cat],["Department",h("span",{},[owner,deptList()])],["Notes",notes]], function(){
     return api("PATCH","/api/tasks/"+t.id,Object.assign({title:title.value,category:cat.value,owner:owner.value,notes:notes.value},tc.value())).then(function(){ toast("Saved"); return load(); });
   }, h("button",{class:"btn danger",type:"button",onclick:function(){ askConfirm("Delete this task?").then(function(ok){ if(ok) api("DELETE","/api/tasks/"+t.id).then(function(){ dlg.close(); load(); }).catch(function(e){toast(e.message);}); }); }},"Delete"));
 }
@@ -556,11 +635,11 @@ function renderLogin(){
 
 function boot(){
   api("GET","/api/me").then(function(me){
-    S.passwordRequired = me.passwordRequired; S.title = me.title; document.title = me.title || document.title;
+    S.passwordRequired = me.passwordRequired; S.title = me.title; S.email = me.email || null; document.title = me.title || document.title;
     if (!me.authed) return renderLogin();
     var m = location.hash.match(/^#event[-\/]([\w-]+)$/);
     if (m){ S.view="event"; S.eventId = /^\d+$/.test(m[1]) ? Number(m[1]) : m[1]; }
-    else if (/^#(events|template)$/.test(location.hash)) S.view=location.hash.slice(1);
+    else if (/^#(events|template|team|reports)$/.test(location.hash)) S.view=location.hash.slice(1);
     return load();
   });
 }

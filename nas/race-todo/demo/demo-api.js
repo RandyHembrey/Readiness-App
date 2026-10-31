@@ -1,11 +1,12 @@
 // Offline demo backend: the core API over localStorage, preloaded with a mock season.
 window.RACE_MAKE_LOCAL_API = function () {
-  var KEY = 'race-todo-demo-v2', SEED = window.RACE_SEED;
+  var KEY = 'race-todo-demo-v3', SEED = window.RACE_SEED;
   function ymd(d) { return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0'); }
   function addDays(s, n) { var d = new Date(s + 'T12:00:00'); d.setDate(d.getDate() + Number(n || 0)); return ymd(d); }
   var seq = 1;
   function fresh() {
-    var data = { template: {}, events: {}, tasks: {} }, tmpl = [];
+    var data = { template: {}, events: {}, tasks: {}, departments: {} }, tmpl = [];
+    SEED.DEPARTMENTS.forEach(function (d, i) { var r = { id: 'd' + (seq++), name: d.name, manager: d.manager || '', email: '', notify: 0, full_report: d.full_report ? 1 : 0, sort_order: i }; data.departments[r.id] = r; });
     SEED.TEMPLATE.forEach(function (t, i) { var r = { id: 's' + (seq++), category: t[0], offset_days: t[1], title: t[2], owner: t[3] || '', notes: '', sort_order: i }; data.template[r.id] = r; tmpl.push(r); });
     tmpl.sort(function (a, b) { return a.offset_days - b.offset_days || a.sort_order - b.sort_order; });
     var today = ymd(new Date()), soon = addDays(today, 21);

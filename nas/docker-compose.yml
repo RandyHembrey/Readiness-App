@@ -1,35 +1,71 @@
-# Home NAS app stack: Caddy (HTTPS + routing) -> apps portal + individual apps.
-# Synology DSM already owns host ports 80/443, so Caddy listens on 8080/8443
-# and the router forwards WAN 80 -> NAS:8080 and WAN 443 -> NAS:8443.
+# Hembrey public apps stack, Synology NAS. No Cloudflare: the home router forwards
+# only WAN 80/443 to Caddy, and everything else stays private.
+#
+# Isolation:
+#   - Only Caddy publishes ports (8080/8443; DSM keeps 80/443 for itself).
+#   - Apps sit on an INTERNAL Docker network: no internet, no LAN, no host.
+#     They can only be reached by Caddy, and only on the hostnames in the Caddyfile.
+#   - Every container drops all Linux capabilities, can't gain privileges, and has
+#     a read-only root filesystem. App code is mounted read-only.
+#
+# File-only deploys: Caddy (--watch) and the apps (node --watch) reload when their
+# files change, so a non-admin NAS user can update code without Container Manager.
 name: hembrey-apps
+
+networks:
+  edge: {}                 # Caddy <-> internet (needed for HTTPS certificates)
+  apps:
+    internal: true         # apps <-> Caddy only; no route to LAN or internet
 
 services:
   caddy:
     image: caddy:2-alpine
-    container_name: caddy
+    container_name: hembrey-caddy
     restart: unless-stopped
+    command: caddy run --config /etc/caddy/Caddyfile --adapter caddyfile --watch
     ports:
       - "8080:80"
       - "8443:443"
       - "8443:443/udp"
     environment:
-      ACME_EMAIL: ${ACME_EMAIL}
+      ACME_EMAIL: ${ACME_EMAIL:?set ACME_EMAIL in .env}
     volumes:
-      - ./caddy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - ./caddy:/etc/caddy:ro
       - ./apps-portal/html:/srv/apps-portal:ro
       - ./volumes/caddy-data:/data
       - ./volumes/caddy-config:/config
-    depends_on:
-      - race-todo
+    networks: [edge, apps]
+    read_only: true
+    tmpfs: [/tmp]
+    cap_drop: [ALL]
+    cap_add: [NET_BIND_SERVICE, DAC_OVERRIDE]   # DAC_OVERRIDE: write to Synology-ACL'd data folders
+    security_opt: ["no-new-privileges:true"]
+    mem_limit: 256m
 
   race-todo:
-    build: ./race-todo
-    image: hembrey/race-todo:latest
-    container_name: race-todo
+    image: node:24-alpine
+    container_name: hembrey-race-todo
     restart: unless-stopped
+    working_dir: /app
+    command: node --watch-path=/app/server.js --watch-path=/app/seed.js server.js
     environment:
+      NODE_ENV: production
+      PORT: "3000"
+      DATA_DIR: /data
       APP_PASSWORD: ${RACE_TODO_PASSWORD:?set RACE_TODO_PASSWORD in .env}
       APP_TITLE: ${RACE_TODO_TITLE:-USF Pro Championships · Event Readiness}
       DEMO_DATA: ${RACE_TODO_DEMO_DATA:-0}   # 1 = load a mock season into an empty database
     volumes:
+      - ./race-todo:/app:ro
       - ./volumes/race-todo:/data
+    networks: [apps]
+    read_only: true
+    tmpfs: [/tmp]
+    cap_drop: [ALL]
+    cap_add: [DAC_OVERRIDE]   # write to Synology-ACL'd data folder
+    security_opt: ["no-new-privileges:true"]
+    mem_limit: 256m
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:3000/healthz"]
+      interval: 30s
+      timeout: 3s

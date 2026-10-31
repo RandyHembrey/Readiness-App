@@ -1,6 +1,9 @@
-# Reverse proxy + automatic Let's Encrypt HTTPS for every *.hembrey.com app on the NAS.
-# To add an app: add a block below, add it to apps-portal/html/apps.json,
-# and add a GoDaddy DNS record for the new subdomain.
+# Public entry point for *.hembrey.com apps on the NAS. Automatic Let's Encrypt HTTPS.
+# Only the hostnames below are served; nothing else on the network is reachable.
+# Saved changes are picked up automatically (caddy --watch).
+#
+# Add an app: add its service to docker-compose.yml on the "apps" network, add a
+# block below, list it in apps-portal/html/apps.json, and add a GoDaddy DNS record.
 {
 	email {$ACME_EMAIL}
 }
@@ -10,8 +13,17 @@
 	header {
 		Strict-Transport-Security "max-age=31536000"
 		X-Content-Type-Options nosniff
+		X-Frame-Options DENY
 		Referrer-Policy strict-origin-when-cross-origin
+		Permissions-Policy "camera=(), microphone=(), geolocation=()"
 		-Server
+	}
+	request_body {
+		max_size 2MB
+	}
+	log {
+		output stdout
+		format console
 	}
 }
 

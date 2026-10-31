@@ -15,6 +15,8 @@ the cloud mock-up keeps running in the meantime.
 | 6 | **Department list and managers confirmed:** Logistics = John, Tech & Operations = Darrel, Equipment = Julian, Business Office = Susanne, Marketing = to be named. Are there others? | Final ownership of every task |
 | 7 | **Susanne's review of the standard checklist and lead times** | The checklist every event starts from |
 | 9 | **Driver database:** ages (date of birth) and licence status (type, expiry), linked to entries/car numbers. Say where it lives today (a Sheet or another system). | A driver panel per event: licences expiring before race day, licences missing or invalid, and age-based eligibility flags. These can become tasks for the right department. **Note:** this is personal data that includes minors, so it needs tighter access (restricted roles, no full dates of birth in emails or reports) than the rest of the app. |
+| 10 | **Team database:** teams, owner contacts, the cars each team runs (car numbers, series/class), and financials (fees, balances, payment history) | A team directory linked to entries and drivers; balances owed shown on the Business Office dashboard |
+| 11 | **List of tracks:** for the track database. Key data (address, layout/configs, paddock and garage capacity, power, fuel, medical, hospitality, nearby hotels) and contacts (promoter, operations, safety, billing) | Track profiles linked to events and venue contracts; contacts pre-filled on Venue Contract tasks |
 | 8 | **Venue contract deliverables:** the standard deliverables both sides commit to (a template is fine) | Venue Contract tasks matched to the real contract terms |
 
 ## Deployment prerequisites (when you're at a computer)

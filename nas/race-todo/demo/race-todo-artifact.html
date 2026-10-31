@@ -81,6 +81,19 @@
   table.tmpl th{font-size:.75rem;color:var(--muted);font-weight:600;border-top:none}
   table.tmpl input{padding:5px 7px}
   a{color:var(--accent);text-decoration:none} a:hover{text-decoration:underline}
+  .timing{display:flex;gap:6px;align-items:center}
+  .timing select{width:auto;flex:none}
+  .timing input[type=number]{width:72px;flex:none}
+  .timing input[type=date]{width:150px;flex:none}
+  .seg{display:inline-flex;background:var(--panel-2);border-radius:9px;padding:3px;box-shadow:inset 0 0 0 1px var(--border)}
+  .seg button{background:none;border:none;color:var(--fg-2);padding:6px 12px;border-radius:7px;cursor:pointer;font-size:.86rem}
+  .seg button.active{background:var(--panel);color:var(--fg);font-weight:600;box-shadow:0 0 0 1px var(--border)}
+  .pill.std{background:rgba(42,98,217,.10);color:var(--accent)}
+  .pill.adhoc{background:rgba(250,178,25,.18);color:var(--fg-2)}
+  table.manage td.due{white-space:nowrap;color:var(--muted);font-size:.8rem;width:70px}
+  tr.done-row input{color:var(--muted);text-decoration:line-through}
+  .pick-list{max-height:50vh;overflow:auto;margin:8px 0}
+  .pick-list label{display:flex;gap:8px;align-items:center;font-size:.88rem;color:var(--fg);padding:5px 0;border-top:1px solid var(--grid);margin:0}
   .sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0)}
 </style>
 </head>
@@ -162,117 +175,185 @@
 
 </script>
 <script>
-// In-browser stand-in for server.js so the UI can be demoed as a single static page.
-// Data lives in localStorage; "Reset demo" in the footer restores the mock season.
-window.RACE_MAKE_LOCAL_API = function () {
-  var KEY = 'race-todo-demo-v1';
-  var SEED = window.RACE_SEED;
+// Browser implementation of the server.js API, over a pluggable document store.
+// Used by the offline demo (localStorage) and the hosted mock-up (shared realtime store).
+// store: { all(coll) -> rows, get(coll, id) -> row|undefined, put(coll, row) -> Promise, del(coll, id) -> Promise, newId(prefix) }
+// Collections: template, events, tasks. Task lead time: offset_days relative to race day (null = fixed due_date);
+// template_id null = ad-hoc task.
+window.RACE_MAKE_CORE = function (store, opts) {
+  opts = opts || {};
   function ymd(d) { return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0'); }
   function addDays(s, n) { var d = new Date(s + 'T12:00:00'); d.setDate(d.getDate() + Number(n || 0)); return ymd(d); }
-  function fresh() {
-    var db = { seq: 1, template: [], events: [], tasks: [] };
-    SEED.TEMPLATE.forEach(function (t, i) { db.template.push({ id: db.seq++, category: t[0], offset_days: t[1], title: t[2], owner: t[3] || '', notes: '', sort_order: i }); });
-    var today = ymd(new Date()), soon = addDays(today, 21);
-    SEED.DEMO_EVENTS.forEach(function (e, ei) {
-      var ev = { id: db.seq++, name: e.name, event_date: addDays(today, e.inDays), location: e.location, notes: e.notes, archived: 0 };
-      db.events.push(ev);
-      db.template.forEach(function (t, i) {
-        var due = addDays(ev.event_date, t.offset_days), hsh = (ei * 31 + i * 17) % 100;
-        var done = due < today ? hsh < e.done * 100 : (due < soon && hsh < 25);
-        db.tasks.push({ id: db.seq++, event_id: ev.id, title: t.title, category: t.category, due_date: due, owner: t.owner, notes: '', sort_order: i, done: done ? 1 : 0, done_at: done ? new Date().toISOString() : null });
+  function intOrNull(v) { return v === null || v === '' || v === undefined || !isFinite(Number(v)) ? null : Math.trunc(Number(v)); }
+  function isYmd(s) { return typeof s === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(s); }
+  function str(v, n) { return (v == null ? '' : String(v)).slice(0, n || 2000).trim(); }
+  function pick(o, b, k) { return b[k] !== undefined ? b[k] : o[k]; }
+  function byDue(a, b) { var x = a.due_date || '9999', y = b.due_date || '9999'; return x < y ? -1 : x > y ? 1 : (a.sort_order || 0) - (b.sort_order || 0); }
+  function template() { return store.all('template').sort(function (a, b) { return a.offset_days - b.offset_days || (a.sort_order || 0) - (b.sort_order || 0); }); }
+  function tasksOf(evId) { return store.all('tasks').filter(function (t) { return t.event_id === evId; }); }
+  async function inBatches(items, n, fn) { for (var i = 0; i < items.length; i += n) await Promise.all(items.slice(i, i + n).map(fn)); }
+  function fromTemplate(ev, t, i) {
+    return { id: store.newId('t'), event_id: ev.id, title: t.title, category: t.category, due_date: addDays(ev.event_date, t.offset_days),
+      offset_days: t.offset_days, template_id: t.id, owner: t.owner || '', notes: t.notes || '', sort_order: i, done: 0, done_at: null };
+  }
+  function linked(tasks, t) {
+    return tasks.filter(function (x) { return x.template_id === t.id || (x.template_id == null && String(x.title).toLowerCase() === String(t.title).toLowerCase()); });
+  }
+  async function syncEvent(ev, templateIds, updateExisting) {
+    var tasks = tasksOf(ev.id), adds = [], ups = [];
+    template().forEach(function (t, i) {
+      if (templateIds && templateIds.indexOf(t.id) === -1) return;
+      var l = linked(tasks, t);
+      if (!l.length) { adds.push(fromTemplate(ev, t, i)); return; }
+      if (!updateExisting) return;
+      l.filter(function (x) { return !x.done; }).forEach(function (x) {
+        var due = addDays(ev.event_date, t.offset_days);
+        if (x.title !== t.title || x.category !== t.category || x.owner !== (t.owner || '') || x.offset_days !== t.offset_days || x.due_date !== due || x.template_id !== t.id)
+          ups.push(Object.assign({}, x, { title: t.title, category: t.category, owner: t.owner || '', offset_days: t.offset_days, due_date: due, template_id: t.id }));
       });
     });
-    return db;
-  }
-  var db;
-  try { db = JSON.parse(localStorage.getItem(KEY)); } catch (e) {}
-  if (!db) db = fresh();
-  function save() { try { localStorage.setItem(KEY, JSON.stringify(db)); } catch (e) {} }
-  save();
-  window.RACE_DEMO_RESET = function () { db = fresh(); save(); location.hash = ''; location.reload(); };
-
-  function byDue(a, b) { return (a.due_date || '9999') < (b.due_date || '9999') ? -1 : (a.due_date || '9999') > (b.due_date || '9999') ? 1 : a.sort_order - b.sort_order; }
-  function evName(t) { var e = db.events.find(function (x) { return x.id === t.event_id; }); return Object.assign({}, t, { event_name: e.name, event_date: e.event_date }); }
-  function pick(o, b, k) { return b[k] !== undefined ? b[k] : o[k]; }
-  function copyTemplate(ev, onlyMissing) {
-    var have = new Set(db.tasks.filter(function (t) { return t.event_id === ev.id; }).map(function (t) { return t.title.toLowerCase(); }));
-    var added = 0;
-    db.template.slice().sort(function (a, b) { return a.offset_days - b.offset_days; }).forEach(function (t, i) {
-      if (onlyMissing && have.has(t.title.toLowerCase())) return;
-      db.tasks.push({ id: db.seq++, event_id: ev.id, title: t.title, category: t.category, due_date: addDays(ev.event_date, t.offset_days), owner: t.owner, notes: t.notes, sort_order: i, done: 0, done_at: null });
-      added++;
-    });
-    return added;
+    await inBatches(adds.concat(ups), 8, function (r) { return store.put('tasks', r); });
+    return { added: adds.length, updated: ups.length };
   }
 
-  function handle(method, url, b) {
+  async function handle(method, url, b) {
     b = b || {};
-    var m, id;
-    if (url === '/api/me') return { authed: true, passwordRequired: false, title: 'USF Pro Championships · Event Readiness (demo)' };
-    if (url === '/api/state') return {
-      events: db.events.slice().sort(function (a, c) { return a.archived - c.archived || (a.event_date < c.event_date ? -1 : 1); }),
-      tasks: db.tasks.slice().sort(byDue).map(evName),
-      template: db.template.slice().sort(function (a, c) { return a.offset_days - c.offset_days || a.sort_order - c.sort_order; }),
-    };
+    var m;
+    if (url === '/api/me') return { authed: true, passwordRequired: false, title: opts.title || 'Race Event To-Do' };
+    if (url === '/api/logout') return { ok: true };
+    if (url === '/api/state') {
+      var evs = store.all('events'), byId = {};
+      evs.forEach(function (e) { byId[e.id] = e; });
+      return {
+        events: evs.sort(function (a, c) { return (a.archived || 0) - (c.archived || 0) || (a.event_date < c.event_date ? -1 : 1); }),
+        tasks: store.all('tasks').filter(function (t) { return byId[t.event_id]; }).sort(byDue)
+          .map(function (t) { return Object.assign({ offset_days: null, template_id: null, notes: '', owner: '' }, t, { event_name: byId[t.event_id].name, event_date: byId[t.event_id].event_date }); }),
+        template: template(),
+      };
+    }
     if (method === 'POST' && url === '/api/events') {
-      if (!b.name || !b.event_date) throw new Error('Name and event date are required');
-      var ev = { id: db.seq++, name: b.name, event_date: b.event_date, location: b.location || '', notes: b.notes || '', archived: 0 };
-      db.events.push(ev);
-      if (b.apply_template !== false) copyTemplate(ev, false);
+      if (!str(b.name) || !isYmd(b.event_date)) throw new Error('Name and event date are required');
+      var ev = { id: store.newId('e'), name: str(b.name, 200), event_date: b.event_date, location: str(b.location, 200), notes: str(b.notes), archived: 0, created_at: new Date().toISOString() };
+      await store.put('events', ev);
+      if (b.apply_template !== false) await inBatches(template().map(function (t, i) { return fromTemplate(ev, t, i); }), 8, function (r) { return store.put('tasks', r); });
       return ev;
     }
-    if ((m = url.match(/^\/api\/events\/(\d+)$/))) {
-      id = +m[1];
-      var e = db.events.find(function (x) { return x.id === id; });
-      if (method === 'DELETE') { db.events = db.events.filter(function (x) { return x.id !== id; }); db.tasks = db.tasks.filter(function (t) { return t.event_id !== id; }); return { ok: true }; }
-      var old = e.event_date;
-      ['name', 'location', 'notes'].forEach(function (k) { e[k] = pick(e, b, k); });
-      if (b.event_date) e.event_date = b.event_date;
-      if (b.archived !== undefined) e.archived = b.archived ? 1 : 0;
-      if (b.shift_tasks && old !== e.event_date) {
-        var delta = Math.round((Date.parse(e.event_date) - Date.parse(old)) / 864e5);
-        db.tasks.forEach(function (t) { if (t.event_id === id && !t.done && t.due_date) t.due_date = addDays(t.due_date, delta); });
+    if ((m = url.match(/^\/api\/events\/([\w-]+)\/tasks$/))) {
+      var e0 = store.get('events', m[1]);
+      if (!e0) throw new Error('Event not found');
+      if (!str(b.title)) throw new Error('Title is required');
+      var off = intOrNull(b.offset_days);
+      var t = { id: store.newId('t'), event_id: e0.id, title: str(b.title, 300), category: str(b.category, 80) || 'General',
+        offset_days: off, due_date: off != null ? addDays(e0.event_date, off) : (isYmd(b.due_date) ? b.due_date : null),
+        template_id: null, owner: str(b.owner, 100), notes: str(b.notes), sort_order: 999, done: 0, done_at: null };
+      await store.put('tasks', t); return t;
+    }
+    if ((m = url.match(/^\/api\/events\/([\w-]+)\/apply-template$/))) {
+      var ids = Array.isArray(b.template_ids) ? b.template_ids : null;
+      return syncEvent(store.get('events', m[1]), ids, !!b.update_existing);
+    }
+    if ((m = url.match(/^\/api\/events\/([\w-]+)$/))) {
+      var id = m[1], e = store.get('events', id);
+      if (!e) throw new Error('Not found');
+      if (method === 'DELETE') {
+        var mine = tasksOf(id);
+        await store.del('events', id);
+        await inBatches(mine, 8, function (x) { return store.del('tasks', x.id); });
+        return { ok: true };
       }
-      return e;
+      var n = Object.assign({}, e);
+      if (b.name !== undefined) n.name = str(b.name, 200) || e.name;
+      if (b.location !== undefined) n.location = str(b.location, 200);
+      if (b.notes !== undefined) n.notes = str(b.notes);
+      if (isYmd(b.event_date)) n.event_date = b.event_date;
+      if (b.archived !== undefined) n.archived = b.archived ? 1 : 0;
+      await store.put('events', n);
+      if (n.event_date !== e.event_date) {
+        var delta = Math.round((Date.parse(n.event_date) - Date.parse(e.event_date)) / 864e5), moves = [];
+        tasksOf(id).forEach(function (x) {
+          if (x.done) return;
+          if (x.offset_days != null) moves.push(Object.assign({}, x, { due_date: addDays(n.event_date, x.offset_days) }));
+          else if (b.shift_tasks && x.due_date) moves.push(Object.assign({}, x, { due_date: addDays(x.due_date, delta) }));
+        });
+        await inBatches(moves, 8, function (r) { return store.put('tasks', r); });
+      }
+      return n;
     }
-    if ((m = url.match(/^\/api\/events\/(\d+)\/tasks$/))) {
-      var t = { id: db.seq++, event_id: +m[1], title: b.title, category: b.category || 'General', due_date: b.due_date || null, owner: b.owner || '', notes: b.notes || '', sort_order: 999, done: 0, done_at: null };
-      db.tasks.push(t); return t;
-    }
-    if ((m = url.match(/^\/api\/events\/(\d+)\/apply-template$/))) {
-      return { added: copyTemplate(db.events.find(function (x) { return x.id === +m[1]; }), true) };
-    }
-    if ((m = url.match(/^\/api\/tasks\/(\d+)$/))) {
-      id = +m[1];
-      if (method === 'DELETE') { db.tasks = db.tasks.filter(function (x) { return x.id !== id; }); return { ok: true }; }
-      var tk = db.tasks.find(function (x) { return x.id === id; });
-      ['title', 'category', 'owner', 'notes'].forEach(function (k) { tk[k] = pick(tk, b, k); });
-      if (b.due_date !== undefined) tk.due_date = b.due_date || null;
-      if (b.done !== undefined) { tk.done_at = b.done ? (tk.done ? tk.done_at : new Date().toISOString()) : null; tk.done = b.done ? 1 : 0; }
-      return tk;
+    if ((m = url.match(/^\/api\/tasks\/([\w-]+)$/))) {
+      var tk = store.get('tasks', m[1]);
+      if (!tk) throw new Error('Not found');
+      if (method === 'DELETE') { await store.del('tasks', tk.id); return { ok: true }; }
+      var ev2 = store.get('events', tk.event_id), nt = Object.assign({}, tk);
+      if (b.title !== undefined) nt.title = str(b.title, 300) || tk.title;
+      if (b.category !== undefined) nt.category = str(b.category, 80) || 'General';
+      if (b.owner !== undefined) nt.owner = str(b.owner, 100);
+      if (b.notes !== undefined) nt.notes = str(b.notes);
+      if (b.offset_days !== undefined && intOrNull(b.offset_days) != null) { nt.offset_days = intOrNull(b.offset_days); nt.due_date = addDays(ev2.event_date, nt.offset_days); }
+      else if (b.offset_days !== undefined || b.due_date !== undefined) { nt.offset_days = null; if (b.due_date !== undefined) nt.due_date = isYmd(b.due_date) ? b.due_date : null; }
+      if (b.done !== undefined) { nt.done_at = b.done ? (tk.done ? tk.done_at : new Date().toISOString()) : null; nt.done = b.done ? 1 : 0; }
+      await store.put('tasks', nt); return nt;
     }
     if (method === 'POST' && url === '/api/template') {
-      var nt = { id: db.seq++, title: b.title, category: b.category || 'General', offset_days: parseInt(b.offset_days, 10) || 0, owner: b.owner || '', notes: '', sort_order: 999 };
-      db.template.push(nt); return nt;
+      if (!str(b.title)) throw new Error('Title is required');
+      var tt = { id: store.newId('s'), title: str(b.title, 300), category: str(b.category, 80) || 'General', offset_days: intOrNull(b.offset_days) || 0, owner: str(b.owner, 100), notes: '', sort_order: 999 };
+      await store.put('template', tt); return tt;
     }
-    if ((m = url.match(/^\/api\/template\/(\d+)$/))) {
-      id = +m[1];
-      if (method === 'DELETE') { db.template = db.template.filter(function (x) { return x.id !== id; }); return { ok: true }; }
-      var tt = db.template.find(function (x) { return x.id === id; });
-      ['title', 'category', 'owner', 'notes'].forEach(function (k) { tt[k] = pick(tt, b, k); });
-      if (b.offset_days !== undefined) tt.offset_days = parseInt(b.offset_days, 10) || 0;
-      return tt;
+    if ((m = url.match(/^\/api\/template\/([\w-]+)$/))) {
+      var o = store.get('template', m[1]);
+      if (!o) throw new Error('Not found');
+      if (method === 'DELETE') { await store.del('template', o.id); return { ok: true }; }
+      var nn = Object.assign({}, o);
+      ['title', 'category', 'owner', 'notes'].forEach(function (k) { nn[k] = b[k] !== undefined ? str(b[k], 300) : o[k]; });
+      if (!nn.title) nn.title = o.title;
+      if (b.offset_days !== undefined) nn.offset_days = intOrNull(b.offset_days) || 0;
+      await store.put('template', nn); return nn;
     }
-    if (url === '/api/logout') return { ok: true };
-    throw new Error('Not available in demo');
+    throw new Error('Not supported');
   }
-
   return function (method, url, body) {
-    return new Promise(function (resolve, reject) {
-      try { var out = handle(method, url, body); save(); resolve(JSON.parse(JSON.stringify(out))); }
-      catch (e) { reject(e); }
-    });
+    return handle(method, url, body).then(function (out) { return JSON.parse(JSON.stringify(out)); });
   };
+};
+
+</script>
+<script>
+// Offline demo backend: the core API over localStorage, preloaded with a mock season.
+window.RACE_MAKE_LOCAL_API = function () {
+  var KEY = 'race-todo-demo-v2', SEED = window.RACE_SEED;
+  function ymd(d) { return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0'); }
+  function addDays(s, n) { var d = new Date(s + 'T12:00:00'); d.setDate(d.getDate() + Number(n || 0)); return ymd(d); }
+  var seq = 1;
+  function fresh() {
+    var data = { template: {}, events: {}, tasks: {} }, tmpl = [];
+    SEED.TEMPLATE.forEach(function (t, i) { var r = { id: 's' + (seq++), category: t[0], offset_days: t[1], title: t[2], owner: t[3] || '', notes: '', sort_order: i }; data.template[r.id] = r; tmpl.push(r); });
+    tmpl.sort(function (a, b) { return a.offset_days - b.offset_days || a.sort_order - b.sort_order; });
+    var today = ymd(new Date()), soon = addDays(today, 21);
+    SEED.DEMO_EVENTS.forEach(function (e, ei) {
+      var ev = { id: 'e' + (seq++), name: e.name, event_date: addDays(today, e.inDays), location: e.location, notes: e.notes, archived: 0 };
+      data.events[ev.id] = ev;
+      tmpl.forEach(function (t, i) {
+        var due = addDays(ev.event_date, t.offset_days), h = (ei * 31 + i * 17) % 100;
+        var done = due < today ? h < e.done * 100 : (due < soon && h < 25);
+        var r = { id: 't' + (seq++), event_id: ev.id, title: t.title, category: t.category, due_date: due, offset_days: t.offset_days, template_id: t.id, owner: t.owner, notes: '', sort_order: i, done: done ? 1 : 0, done_at: done ? new Date().toISOString() : null };
+        data.tasks[r.id] = r;
+      });
+    });
+    return data;
+  }
+  var data;
+  try { data = JSON.parse(localStorage.getItem(KEY)); } catch (e) {}
+  if (!data) data = fresh();
+  function save() { try { localStorage.setItem(KEY, JSON.stringify(data)); } catch (e) {} }
+  save();
+  window.RACE_DEMO_RESET = function () { data = fresh(); save(); location.hash = ''; location.reload(); };
+  var store = {
+    all: function (c) { return Object.keys(data[c]).map(function (k) { return Object.assign({}, data[c][k]); }); },
+    get: function (c, id) { return data[c][id] && Object.assign({}, data[c][id]); },
+    put: function (c, row) { data[c][row.id] = JSON.parse(JSON.stringify(row)); save(); return Promise.resolve(); },
+    del: function (c, id) { delete data[c][id]; save(); return Promise.resolve(); },
+    newId: function (p) { return p + Date.now().toString(36) + Math.random().toString(36).slice(2, 6); },
+  };
+  return window.RACE_MAKE_CORE(store, { title: 'USF Pro Championships · Event Readiness (demo)' });
 };
 if (!window.RACE_DEFER_BACKEND) window.RACE_DEMO_API = window.RACE_MAKE_LOCAL_API();
 
@@ -295,8 +376,6 @@ window.RACE_BACKEND_READY = (async function () {
 
   var cache = { template: {}, events: {}, tasks: {} };
   var chains = {};
-  function ymd(d) { return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0'); }
-  function addDays(s, n) { var d = new Date(s + 'T12:00:00'); d.setDate(d.getDate() + Number(n || 0)); return ymd(d); }
   function uid(p) { return p + '-' + Date.now().toString(36) + Math.random().toString(36).slice(2, 7); }
   function clean(o) { var r = {}; for (var k in o) if (k !== 'id' && k !== 'event_name') r[k] = o[k] === undefined ? null : o[k]; return r; }
 
@@ -321,7 +400,6 @@ window.RACE_BACKEND_READY = (async function () {
     delete cache[coll][id];
     return serial(coll + '/' + id, function () { return db.doc(coll + '/' + id).delete(); }).catch(writeErr);
   }
-  async function inBatches(items, n, fn) { for (var i = 0; i < items.length; i += n) await Promise.all(items.slice(i, i + n).map(fn)); }
 
   // live subscriptions (once)
   var changeTimer = null, firstLoads = 0, resolveFirst;
@@ -346,95 +424,14 @@ window.RACE_BACKEND_READY = (async function () {
   });
   await firstLoad;
 
-  function vals(c) { return Object.keys(cache[c]).map(function (k) { return cache[c][k]; }); }
-  function byDue(a, b) { var x = a.due_date || '9999', y = b.due_date || '9999'; return x < y ? -1 : x > y ? 1 : (a.sort_order || 0) - (b.sort_order || 0); }
-  function sortedTemplate() { return vals('template').sort(function (a, b) { return a.offset_days - b.offset_days || (a.sort_order || 0) - (b.sort_order || 0); }); }
-  function pick(o, b, k) { return b[k] !== undefined ? b[k] : o[k]; }
-  async function copyTemplate(ev, onlyMissing) {
-    var have = new Set(vals('tasks').filter(function (t) { return t.event_id === ev.id; }).map(function (t) { return String(t.title).toLowerCase(); }));
-    var rows = sortedTemplate().filter(function (t) { return !onlyMissing || !have.has(String(t.title).toLowerCase()); }).map(function (t, i) {
-      return { id: uid('t'), event_id: ev.id, title: t.title, category: t.category, due_date: addDays(ev.event_date, t.offset_days), owner: t.owner || '', notes: t.notes || '', sort_order: i, done: 0, done_at: null };
-    });
-    await inBatches(rows, 8, function (r) { return put('tasks', r); });
-    return rows.length;
-  }
-
-  async function handle(method, url, b) {
-    b = b || {};
-    var m;
-    if (url === '/api/me') return { authed: true, passwordRequired: false, title: 'USF Pro Championships · Event Readiness' };
-    if (url === '/api/logout') return { ok: true };
-    if (url === '/api/state') {
-      var evs = vals('events');
-      var names = {}; evs.forEach(function (e) { names[e.id] = e; });
-      return {
-        events: evs.sort(function (a, c) { return (a.archived || 0) - (c.archived || 0) || (a.event_date < c.event_date ? -1 : 1); }),
-        tasks: vals('tasks').filter(function (t) { return names[t.event_id]; }).sort(byDue).map(function (t) { return Object.assign({}, t, { event_name: names[t.event_id].name, event_date: names[t.event_id].event_date }); }),
-        template: sortedTemplate(),
-      };
-    }
-    if (method === 'POST' && url === '/api/events') {
-      if (!b.name || !b.event_date) throw new Error('Name and event date are required');
-      var ev = { id: uid('e'), name: String(b.name).slice(0, 200), event_date: b.event_date, location: b.location || '', notes: b.notes || '', archived: 0, created_at: new Date().toISOString() };
-      await put('events', ev);
-      if (b.apply_template !== false) await copyTemplate(ev, false);
-      return ev;
-    }
-    if ((m = url.match(/^\/api\/events\/([\w-]+)\/tasks$/))) {
-      var t = { id: uid('t'), event_id: m[1], title: String(b.title || '').slice(0, 300), category: b.category || 'General', due_date: b.due_date || null, owner: b.owner || '', notes: b.notes || '', sort_order: 999, done: 0, done_at: null };
-      if (!t.title) throw new Error('Title is required');
-      await put('tasks', t); return t;
-    }
-    if ((m = url.match(/^\/api\/events\/([\w-]+)\/apply-template$/))) {
-      return { added: await copyTemplate(cache.events[m[1]], true) };
-    }
-    if ((m = url.match(/^\/api\/events\/([\w-]+)$/))) {
-      var id = m[1], e = cache.events[id];
-      if (method === 'DELETE') {
-        var mine = vals('tasks').filter(function (x) { return x.event_id === id; });
-        await del('events', id);
-        await inBatches(mine, 8, function (x) { return del('tasks', x.id); });
-        return { ok: true };
-      }
-      var n = Object.assign({}, e), old = e.event_date;
-      ['name', 'location', 'notes'].forEach(function (k) { n[k] = pick(e, b, k); });
-      if (b.event_date) n.event_date = b.event_date;
-      if (b.archived !== undefined) n.archived = b.archived ? 1 : 0;
-      await put('events', n);
-      if (b.shift_tasks && old !== n.event_date) {
-        var delta = Math.round((Date.parse(n.event_date) - Date.parse(old)) / 864e5);
-        var open = vals('tasks').filter(function (x) { return x.event_id === id && !x.done && x.due_date; });
-        await inBatches(open, 8, function (x) { return put('tasks', Object.assign({}, x, { due_date: addDays(x.due_date, delta) })); });
-      }
-      return n;
-    }
-    if ((m = url.match(/^\/api\/tasks\/([\w-]+)$/))) {
-      var tk = cache.tasks[m[1]];
-      if (method === 'DELETE') { await del('tasks', m[1]); return { ok: true }; }
-      var nt = Object.assign({}, tk);
-      ['title', 'category', 'owner', 'notes'].forEach(function (k) { nt[k] = pick(tk, b, k); });
-      if (b.due_date !== undefined) nt.due_date = b.due_date || null;
-      if (b.done !== undefined) { nt.done_at = b.done ? (tk.done ? tk.done_at : new Date().toISOString()) : null; nt.done = b.done ? 1 : 0; }
-      await put('tasks', nt); return nt;
-    }
-    if (method === 'POST' && url === '/api/template') {
-      var tt = { id: uid('s'), title: String(b.title || '').slice(0, 300), category: b.category || 'General', offset_days: parseInt(b.offset_days, 10) || 0, owner: b.owner || '', notes: '', sort_order: 999 };
-      if (!tt.title) throw new Error('Title is required');
-      await put('template', tt); return tt;
-    }
-    if ((m = url.match(/^\/api\/template\/([\w-]+)$/))) {
-      if (method === 'DELETE') { await del('template', m[1]); return { ok: true }; }
-      var o = cache.template[m[1]], nn = Object.assign({}, o);
-      ['title', 'category', 'owner', 'notes'].forEach(function (k) { nn[k] = pick(o, b, k); });
-      if (b.offset_days !== undefined) nn.offset_days = parseInt(b.offset_days, 10) || 0;
-      await put('template', nn); return nn;
-    }
-    throw new Error('Not supported');
-  }
-
-  window.RACE_DEMO_API = function (method, url, body) {
-    return handle(method, url, body).then(function (out) { return JSON.parse(JSON.stringify(out)); });
+  var store = {
+    all: function (c) { return Object.keys(cache[c]).map(function (k) { return Object.assign({}, cache[c][k]); }); },
+    get: function (c, id) { return cache[c][id] && Object.assign({}, cache[c][id]); },
+    put: put, del: del, newId: uid,
   };
+  var core = window.RACE_MAKE_CORE(store, { title: 'USF Pro Championships · Event Readiness' });
+
+  window.RACE_DEMO_API = core;
 })();
 
 </script>
@@ -638,6 +635,32 @@ function eventRow(ev){
   ]);
 }
 
+function leadLabel(off){
+  if (off == null) return "";
+  if (off === 0) return "race day";
+  var n = Math.abs(off);
+  return n + (n===1?" day ":" days ") + (off<0 ? "before" : "after");
+}
+// Due-date timing: N days before / N days after / on race day (lead time follows the race date) or a fixed date.
+function timingControl(off, due, allowFixed){
+  var mode = off == null ? (allowFixed ? "fixed" : "before") : off < 0 ? "before" : off > 0 ? "after" : "race";
+  var sel = h("select",{"aria-label":"Timing"},[["before","days before"],["after","days after"],["race","on race day"]].concat(allowFixed?[["fixed","fixed date"]]:[])
+    .map(function(o){ return h("option",{value:o[0],selected:mode===o[0]},o[1]); }));
+  var num = h("input",{type:"number",min:"0",step:"1","aria-label":"Days",value: off == null ? "" : String(Math.abs(off))});
+  var date = h("input",{type:"date","aria-label":"Due date",value: off == null ? (due||"") : ""});
+  var el = h("span",{class:"timing"},[num, sel, date]);
+  function sync(){ var m=sel.value; num.style.display = (m==="before"||m==="after") ? "" : "none"; date.style.display = m==="fixed" ? "" : "none"; }
+  sel.addEventListener("change", function(){ if ((sel.value==="before"||sel.value==="after") && !num.value) num.value = sel.value==="before" ? "30" : "7"; sync(); });
+  sync();
+  return { el: el, inputs: [sel, num, date], value: function(){
+    var m = sel.value, n = Math.abs(parseInt(num.value,10) || 0);
+    if (m==="fixed") return { offset_days: null, due_date: date.value || null };
+    if (m==="race") return { offset_days: 0 };
+    return { offset_days: m==="before" ? -n : n };
+  } };
+}
+function onChangeAll(inputs, fn){ inputs.forEach(function(i){ i.addEventListener("change", fn); }); }
+
 function taskRow(t, showEvent){
   var cb = h("input",{type:"checkbox","aria-label":"Mark "+t.title+" done"}); cb.checked = !!t.done;
   cb.addEventListener("change", function(){ toggleTask(t, cb.checked); });
@@ -646,7 +669,7 @@ function taskRow(t, showEvent){
       h("div",{class:"title"},t.title),
       h("div",{class:"meta"},[
         showEvent ? h("a",{href:"#",onclick:function(e){e.preventDefault(); openEvent(t.event_id);}}, t.event_name) : h("span",{class:"pill"},t.category),
-        h("span",{},fmtDate(t.due_date)), statusChip(t), t.owner ? h("span",{},"👤 "+t.owner) : null,
+        h("span",{title: t.offset_days==null ? "Fixed date" : "Lead time: "+leadLabel(t.offset_days)},fmtDate(t.due_date)+(t.offset_days!=null && !showEvent ? " · "+leadLabel(t.offset_days) : "")), statusChip(t), t.owner ? h("span",{},"👤 "+t.owner) : null,
         t.notes ? h("span",{title:t.notes},"📝 note") : null
       ])
     ]),
@@ -663,7 +686,7 @@ function renderEvents(root){
 }
 
 // ---------- single event
-function openEvent(id){ if (S.eventId!==id && S.view!=="dashboard"){ S.catFilter=""; S.ownerFilter=""; S.filter="open"; } S.view="event"; S.eventId=id; location.hash="event-"+id; render(); window.scrollTo(0,0); }
+function openEvent(id){ if (S.eventId!==id) S.eventMode="list"; if (S.eventId!==id && S.view!=="dashboard"){ S.catFilter=""; S.ownerFilter=""; S.filter="open"; } S.view="event"; S.eventId=id; location.hash="event-"+id; render(); window.scrollTo(0,0); }
 function renderEvent(root){
   var ev = S.data.events.find(function(e){return e.id===S.eventId;});
   if (!ev){ S.view="events"; return renderEvents(root); }
@@ -680,7 +703,6 @@ function renderEvent(root){
       ]),
       h("div",{style:"display:flex;gap:6px;flex-wrap:wrap"},[
         h("button",{class:"btn secondary",onclick:function(){openEditEvent(ev);}},"Edit event"),
-        h("button",{class:"btn secondary",onclick:function(){ api("POST","/api/events/"+ev.id+"/apply-template").then(function(r){ toast(r.added ? r.added+" standard task(s) added" : "Already has every standard task"); load(); }); }},"Sync standard list"),
         h("button",{class:"btn secondary",onclick:function(){ api("PATCH","/api/events/"+ev.id,{archived:!ev.archived}).then(load); }}, ev.archived?"Unarchive":"Archive")
       ])
     ]),
@@ -688,15 +710,12 @@ function renderEvent(root){
       h("div",{class:"meter-label"},[h("span",{},st.done+" of "+st.total+" done"+(st.overdue?" · "+st.overdue+" overdue":"")+(st.soon?" · "+st.soon+" due this week":"")),h("span",{},st.pct+"%")])])
   ]));
 
-  // add task
-  var f = { title:h("input",{placeholder:"New task…"}), due:h("input",{type:"date"}), cat:h("input",{placeholder:"Category",list:"cats"}), owner:h("input",{placeholder:"Owner"}) };
-  root.appendChild(h("div",{class:"card"},[
-    h("datalist",{id:"cats"}, cats.map(function(c){return h("option",{value:c});})),
-    h("form",{class:"form-row",onsubmit:function(e){ e.preventDefault(); if(!f.title.value.trim()) return;
-        api("POST","/api/events/"+ev.id+"/tasks",{title:f.title.value,due_date:f.due.value,category:f.cat.value,owner:f.owner.value}).then(function(){ toast("Task added"); load(); }).catch(function(e){toast(e.message);}); }},[
-      h("div",{},[h("label",{},"Task"),f.title]), h("div",{},[h("label",{},"Due"),f.due]), h("div",{},[h("label",{},"Category"),f.cat]), h("div",{},[h("label",{},"Owner"),f.owner]),
-      h("button",{class:"btn",type:"submit"},"Add")])
+  root.appendChild(h("div",{style:"display:flex;gap:10px;align-items:center;margin:0 0 12px"},[
+    h("div",{class:"seg",role:"tablist"},[["list","Checklist"],["manage","Manage tasks"]].map(function(o){
+      return h("button",{role:"tab","aria-selected":String((S.eventMode||"list")===o[0]),class:(S.eventMode||"list")===o[0]?"active":"",onclick:function(){ S.eventMode=o[0]; render(); }},o[1]); })),
+    (S.eventMode||"list")==="list" ? h("button",{class:"btn ghost",onclick:function(){ S.eventMode="manage"; render(); setTimeout(function(){ var i=document.getElementById("adhoc-title"); if(i){ i.focus(); i.scrollIntoView({block:"center"}); } },0); }},"+ Add task") : null
   ]));
+  if (S.eventMode==="manage") return renderManage(root, ev, tasks, cats);
 
   // filters
   var sel = h("select",{onchange:function(){ S.filter=sel.value; render(); }},[["open","Open tasks"],["overdue","Overdue"],["soon","Due in 7 days"],["done","Completed"],["all","All tasks"]].map(function(o){ return h("option",{value:o[0],selected:S.filter===o[0]},o[1]); }));
@@ -716,6 +735,74 @@ function renderEvent(root){
   root.appendChild(h("div",{class:"card"},[h("div",{class:"toolbar"},[h("h2",{style:"margin:0;margin-right:auto"},"Tasks"),sel,csel,osel]), list]));
 }
 
+// ---------- per-event control panel
+function renderManage(root, ev, tasks, cats){
+  var tmpl = S.data.template;
+  function isLinked(x, t){ return x.template_id===t.id || (x.template_id==null && String(x.title).toLowerCase()===String(t.title).toLowerCase()); }
+  function isStandard(x){ return x.template_id!=null || tmpl.some(function(t){ return isLinked(x,t); }); }
+  var missing = tmpl.filter(function(t){ return !tasks.some(function(x){ return isLinked(x,t); }); });
+  var rows = tasks.slice().sort(function(a,b){ return (a.due_date||"9999")<(b.due_date||"9999")?-1:(a.due_date||"9999")>(b.due_date||"9999")?1:0; });
+  var nStd = rows.filter(isStandard).length;
+
+  function patch(t, body){ return api("PATCH","/api/tasks/"+t.id, body).then(function(n){ Object.assign(t, n); toast("Saved"); return load(); }).catch(function(e){ toast(e.message); }); }
+  var tbody = h("tbody");
+  rows.forEach(function(t){
+    function inp(field, attrs){ var i=h("input",Object.assign({value:t[field]||""},attrs||{})); i.addEventListener("change",function(){ var b={}; b[field]=i.value; patch(t,b); }); return i; }
+    var tc = timingControl(t.offset_days, t.due_date, true);
+    onChangeAll(tc.inputs, function(){ var v=tc.value(); if (v.offset_days===null && !v.due_date) return; patch(t, v); });
+    var std = isStandard(t);
+    tbody.appendChild(h("tr",{class:t.done?"done-row":""},[
+      h("td",{},inp("title",{"aria-label":"Task"})),
+      h("td",{style:"width:140px"},inp("category",{list:"cats","aria-label":"Category"})),
+      h("td",{style:"width:300px"},tc.el),
+      h("td",{class:"due"},fmtDate(t.due_date)),
+      h("td",{style:"width:120px"},inp("owner",{"aria-label":"Owner"})),
+      h("td",{style:"width:80px"},h("span",{class:"pill "+(std?"std":"adhoc"),title:std?"From the standard checklist":"Added for this event only"},std?"Standard":"Ad-hoc")),
+      h("td",{style:"width:40px"},h("button",{class:"btn ghost",title:"Remove from this event",onclick:function(){ askConfirm("Remove “"+t.title+"” from "+ev.name+"?"+(std?" (It stays on the standard checklist.)":""),"Remove").then(function(ok){ if(ok) api("DELETE","/api/tasks/"+t.id).then(load).catch(function(e){toast(e.message);}); }); }},"✕"))
+    ]));
+  });
+
+  // ad-hoc add row
+  var nt = { title:h("input",{id:"adhoc-title",placeholder:"New ad-hoc task for this event…"}), cat:h("input",{placeholder:"Category",list:"cats"}), owner:h("input",{placeholder:"Owner"}) };
+  var ntc = timingControl(-14, null, true);
+  var addForm = h("form",{style:"display:grid;grid-template-columns:1fr 140px 300px 120px auto;gap:8px;align-items:center;margin-top:12px",onsubmit:function(e){
+      e.preventDefault(); if(!nt.title.value.trim()) return;
+      var v = ntc.value(); if (v.offset_days===null && !v.due_date) return toast("Pick a due date");
+      api("POST","/api/events/"+ev.id+"/tasks",Object.assign({title:nt.title.value,category:nt.cat.value,owner:nt.owner.value},v)).then(function(){ toast("Task added"); return load(); }).then(function(){ var i=document.getElementById("adhoc-title"); if(i) i.focus(); }).catch(function(e){toast(e.message);}); }},
+    [nt.title, nt.cat, ntc.el, nt.owner, h("button",{class:"btn",type:"submit"},"Add")]);
+
+  root.appendChild(h("div",{class:"card"},[
+    h("datalist",{id:"cats"}, Array.from(new Set(cats.concat(tmpl.map(function(t){return t.category;})))).sort().map(function(c){return h("option",{value:c});})),
+    h("div",{class:"toolbar"},[
+      h("h2",{style:"margin:0;margin-right:auto"},"Manage tasks · "+rows.length+" ("+nStd+" standard, "+(rows.length-nStd)+" ad-hoc)"),
+      h("button",{class:"btn secondary",disabled:!missing.length,onclick:function(){ openAddStandard(ev, missing); }}, missing.length ? "Add standard tasks ("+missing.length+")" : "All standard tasks added"),
+      h("button",{class:"btn secondary",title:"Bring open standard tasks in line with the standard checklist",onclick:function(){
+        askConfirm("Update this event from the standard checklist? Open standard tasks take the checklist’s current wording, category, owner and lead time, and any missing standard tasks are added. Completed tasks, ad-hoc tasks and your removals of other tasks are left alone.","Update").then(function(ok){ if(!ok) return;
+          api("POST","/api/events/"+ev.id+"/apply-template",{update_existing:true}).then(function(r){ toast(r.added+" added, "+r.updated+" updated"); load(); }).catch(function(e){toast(e.message);}); }); }},"Update from standard")
+    ]),
+    h("p",{class:"muted",style:"margin:-4px 0 6px"},"Edit anything inline; changes save as you go. Lead times count from race day, so moving the race date moves these due dates with it. Use “fixed date” for a deadline that doesn’t depend on the race."),
+    h("div",{style:"overflow-x:auto"},h("table",{class:"tmpl manage"},[h("thead",{},h("tr",{},["Task","Category","Due (lead time)","","Owner","Type",""].map(function(x){return h("th",{},x);}))), tbody])),
+    h("h2",{style:"margin:18px 0 0;font-size:.92rem"},"Add an ad-hoc task"),
+    addForm
+  ]));
+}
+function openAddStandard(ev, missing){
+  dlg.innerHTML = "";
+  var boxes = missing.map(function(t){ var c=h("input",{type:"checkbox"}); c.checked=true; return {t:t,c:c}; });
+  var all = h("input",{type:"checkbox"}); all.checked = true;
+  all.addEventListener("change", function(){ boxes.forEach(function(b){ b.c.checked = all.checked; }); });
+  dlg.appendChild(h("form",{onsubmit:function(e){ e.preventDefault();
+      var ids = boxes.filter(function(b){return b.c.checked;}).map(function(b){return b.t.id;});
+      if (!ids.length) return dlg.close();
+      api("POST","/api/events/"+ev.id+"/apply-template",{template_ids:ids}).then(function(r){ dlg.close(); toast(r.added+" task(s) added"); load(); }).catch(function(err){ toast(err.message); }); }},[
+    h("h2",{},"Add standard tasks to "+ev.name),
+    h("label",{style:"display:flex;gap:8px;align-items:center;font-size:.85rem;color:var(--fg)"},[all,"Select all"]),
+    h("div",{class:"pick-list"}, boxes.map(function(b){ return h("label",{},[b.c, h("span",{style:"flex:1"},b.t.title), h("span",{class:"muted"},leadLabel(b.t.offset_days))]); })),
+    h("div",{class:"actions"},[h("button",{class:"btn secondary",type:"button",onclick:function(){dlg.close();}},"Cancel"),h("button",{class:"btn",type:"submit"},"Add selected")])
+  ]));
+  dlg.showModal();
+}
+
 // ---------- template
 function renderTemplate(root){
   var rows = S.data.template;
@@ -724,19 +811,29 @@ function renderTemplate(root){
     function inp(field, attrs){ var i=h("input",Object.assign({value:t[field]},attrs||{})); i.addEventListener("change",function(){ var b={}; b[field]=i.value; api("PATCH","/api/template/"+t.id,b).then(function(n){ Object.assign(t,n); toast("Saved"); }); }); return i; }
     tbody.appendChild(h("tr",{},[
       h("td",{},inp("title")), h("td",{style:"width:150px"},inp("category")),
-      h("td",{style:"width:110px"},inp("offset_days",{type:"number"})),
+      h("td",{style:"width:240px"},(function(){ var tc=timingControl(t.offset_days,null,false);
+        onChangeAll(tc.inputs,function(){ api("PATCH","/api/template/"+t.id,{offset_days:tc.value().offset_days}).then(function(n){ Object.assign(t,n); toast("Saved"); }); }); return tc.el; })()),
       h("td",{style:"width:130px"},inp("owner")),
       h("td",{style:"width:40px"},h("button",{class:"btn ghost",title:"Remove",onclick:function(){ askConfirm("Remove “"+t.title+"” from the standard checklist? Existing events keep their copy.","Remove").then(function(ok){ if(ok) api("DELETE","/api/template/"+t.id).then(load).catch(function(e){toast(e.message);}); }); }},"✕"))
     ]));
   });
-  var f = { title:h("input",{placeholder:"New standard task…"}), cat:h("input",{placeholder:"Category"}), off:h("input",{type:"number",placeholder:"-30"}), own:h("input",{placeholder:"Owner"}) };
+  var f = { title:h("input",{placeholder:"New standard task…"}), cat:h("input",{placeholder:"Category"}), own:h("input",{placeholder:"Owner"}) };
+  var ftc = timingControl(-30, null, false);
   root.appendChild(h("div",{class:"card"},[
     h("h2",{},"Standard checklist"),
-    h("p",{class:"muted",style:"margin-top:-4px"},"Every new event starts with these tasks. “Days from race” sets the due date: −30 means 30 days before race day, 7 means a week after. Changes here apply to new events; use “Sync standard list” on an event to pull in newly added tasks."),
-    h("table",{class:"tmpl"},[h("thead",{},h("tr",{},[h("th",{},"Task"),h("th",{},"Category"),h("th",{},"Days from race"),h("th",{},"Default owner"),h("th",{})])), tbody]),
-    h("form",{class:"form-row",style:"grid-template-columns:2fr 1fr 110px 130px auto;margin-top:12px",onsubmit:function(e){ e.preventDefault(); if(!f.title.value.trim())return;
-      api("POST","/api/template",{title:f.title.value,category:f.cat.value,offset_days:f.off.value,owner:f.own.value}).then(function(){ toast("Added"); load(); }); }},
-      [h("div",{},f.title),h("div",{},f.cat),h("div",{},f.off),h("div",{},f.own),h("button",{class:"btn",type:"submit"},"Add")])
+    h("div",{class:"toolbar",style:"margin-top:-4px"},[
+      h("p",{class:"muted",style:"margin:0;flex:1;min-width:260px"},"Every new event starts with these tasks. Each one’s lead time sets its due date relative to race day. Edits apply to new events; to roll them into events already on the calendar, use “Apply to upcoming events”."),
+      h("button",{class:"btn secondary",onclick:function(){
+        var t0=today(), evs=S.data.events.filter(function(e){ return !e.archived && e.event_date>=t0; });
+        if (!evs.length) return toast("No upcoming events");
+        askConfirm("Apply the standard checklist to "+evs.length+" upcoming event(s)? Missing standard tasks are added, and open standard tasks take the current wording, category, owner and lead time. Completed and ad-hoc tasks aren’t touched.","Apply").then(function(ok){ if(!ok) return;
+          var a=0,u=0; evs.reduce(function(p,e){ return p.then(function(){ return api("POST","/api/events/"+e.id+"/apply-template",{update_existing:true}).then(function(r){ a+=r.added; u+=r.updated; }); }); }, Promise.resolve())
+            .then(function(){ toast(a+" added, "+u+" updated across "+evs.length+" event(s)"); load(); }).catch(function(e){ toast(e.message); }); }); }},"Apply to upcoming events")
+    ]),
+    h("div",{style:"overflow-x:auto"},h("table",{class:"tmpl"},[h("thead",{},h("tr",{},[h("th",{},"Task"),h("th",{},"Category"),h("th",{},"Lead time"),h("th",{},"Default owner"),h("th",{})])), tbody])),
+    h("form",{style:"display:grid;grid-template-columns:2fr 1fr 240px 130px auto;gap:8px;align-items:center;margin-top:12px",onsubmit:function(e){ e.preventDefault(); if(!f.title.value.trim())return;
+      api("POST","/api/template",{title:f.title.value,category:f.cat.value,offset_days:ftc.value().offset_days,owner:f.own.value}).then(function(){ toast("Added"); load(); }).catch(function(e){toast(e.message);}); }},
+      [f.title,f.cat,ftc.el,f.own,h("button",{class:"btn",type:"submit"},"Add")])
   ]));
 }
 
@@ -770,14 +867,14 @@ function openNewEvent(){
 function openEditEvent(ev){
   var name=h("input",{value:ev.name}), date=h("input",{type:"date",value:ev.event_date}), loc=h("input",{value:ev.location}), notes=h("textarea",{rows:3}); notes.value=ev.notes;
   var shift=h("input",{type:"checkbox"}); shift.checked=true;
-  modal("Edit event",[["Event name",name],["Race date",date],["If the date changes, move open task due dates with it",shift],["Location",loc],["Notes",notes]], function(){
+  modal("Edit event",[["Event name",name],["Race date",date],["If the date changes, also move fixed-date tasks (lead-time tasks always move)",shift],["Location",loc],["Notes",notes]], function(){
     return api("PATCH","/api/events/"+ev.id,{name:name.value,event_date:date.value,location:loc.value,notes:notes.value,shift_tasks:shift.checked}).then(function(){ toast("Saved"); return load(); });
   }, h("button",{class:"btn danger",type:"button",onclick:function(){ askConfirm("Delete “"+ev.name+"” and all its tasks? This cannot be undone.").then(function(ok){ if(ok) api("DELETE","/api/events/"+ev.id).then(function(){ dlg.close(); S.view="events"; location.hash="events"; load(); }).catch(function(e){toast(e.message);}); }); }},"Delete"));
 }
 function openTaskEditor(t){
-  var title=h("input",{value:t.title}), due=h("input",{type:"date",value:t.due_date||""}), cat=h("input",{value:t.category}), owner=h("input",{value:t.owner}), notes=h("textarea",{rows:3}); notes.value=t.notes;
-  modal("Edit task",[["Task",title],["Due date",due],["Category",cat],["Owner",owner],["Notes",notes]], function(){
-    return api("PATCH","/api/tasks/"+t.id,{title:title.value,due_date:due.value,category:cat.value,owner:owner.value,notes:notes.value}).then(function(){ toast("Saved"); return load(); });
+  var title=h("input",{value:t.title}), tc=timingControl(t.offset_days,t.due_date,true), cat=h("input",{value:t.category}), owner=h("input",{value:t.owner}), notes=h("textarea",{rows:3}); notes.value=t.notes||"";
+  modal("Edit task",[["Task",title],["Due (lead time from race day, or a fixed date)",tc.el],["Category",cat],["Owner",owner],["Notes",notes]], function(){
+    return api("PATCH","/api/tasks/"+t.id,Object.assign({title:title.value,category:cat.value,owner:owner.value,notes:notes.value},tc.value())).then(function(){ toast("Saved"); return load(); });
   }, h("button",{class:"btn danger",type:"button",onclick:function(){ askConfirm("Delete this task?").then(function(ok){ if(ok) api("DELETE","/api/tasks/"+t.id).then(function(){ dlg.close(); load(); }).catch(function(e){toast(e.message);}); }); }},"Delete"));
 }
 

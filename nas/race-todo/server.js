@@ -60,9 +60,11 @@ CREATE TABLE IF NOT EXISTS event_tasks (
 CREATE INDEX IF NOT EXISTS event_tasks_event_idx ON event_tasks(event_id);
 `);
 
-if (!db.prepare('PRAGMA table_info(template_tasks)').all().some((c) => c.name === 'owner')) {
-  db.exec("ALTER TABLE template_tasks ADD COLUMN owner TEXT NOT NULL DEFAULT ''");
-}
+const hasCol = (t, c) => db.prepare(`PRAGMA table_info(${t})`).all().some((x) => x.name === c);
+if (!hasCol('template_tasks', 'owner')) db.exec("ALTER TABLE template_tasks ADD COLUMN owner TEXT NOT NULL DEFAULT ''");
+// Lead time: offset_days relative to race day (NULL = fixed due date). template_id NULL = ad-hoc task.
+if (!hasCol('event_tasks', 'offset_days')) db.exec('ALTER TABLE event_tasks ADD COLUMN offset_days INTEGER');
+if (!hasCol('event_tasks', 'template_id')) db.exec('ALTER TABLE event_tasks ADD COLUMN template_id INTEGER');
 
 // Seed the standard checklist the first time the app starts.
 const { TEMPLATE, DEMO_EVENTS } = require('./seed');
@@ -135,7 +137,7 @@ if (process.env.DEMO_DATA === '1' && db.prepare('SELECT COUNT(*) AS n FROM event
   const today = new Date().toISOString().slice(0, 10);
   const tmpl = db.prepare('SELECT * FROM template_tasks ORDER BY offset_days, sort_order, id').all();
   const insE = db.prepare('INSERT INTO events (name, event_date, location, notes) VALUES (?,?,?,?)');
-  const insT = db.prepare('INSERT INTO event_tasks (event_id, title, category, due_date, owner, notes, sort_order, done, done_at) VALUES (?,?,?,?,?,?,?,?,?)');
+  const insT = db.prepare('INSERT INTO event_tasks (event_id, title, category, due_date, owner, notes, sort_order, done, done_at, offset_days, template_id) VALUES (?,?,?,?,?,?,?,?,?,?,?)');
   DEMO_EVENTS.forEach((e, ei) => {
     const date = addDays(today, e.inDays);
     const id = insE.run(e.name, date, e.location, e.notes).lastInsertRowid;
@@ -144,7 +146,7 @@ if (process.env.DEMO_DATA === '1' && db.prepare('SELECT COUNT(*) AS n FROM event
       // deterministic: most past-due tasks done, a few left open (overdue); a few early finishers
       const h = (ei * 31 + i * 17) % 100;
       const done = due < today ? h < e.done * 100 : (due < addDays(today, 21) && h < 25);
-      insT.run(id, t.title, t.category, due, t.owner, '', i, done ? 1 : 0, done ? new Date().toISOString() : null);
+      insT.run(id, t.title, t.category, due, t.owner, '', i, done ? 1 : 0, done ? new Date().toISOString() : null, t.offset_days, t.id);
     });
   });
 }
@@ -157,12 +159,47 @@ function eventWithTasks(id) {
   return ev;
 }
 
+const intOrNull = (v) => (v === null || v === '' || v === undefined ? null : Number.isFinite(Number(v)) ? Math.trunc(Number(v)) : null);
+const TEMPLATE_ORDER = 'SELECT * FROM template_tasks ORDER BY offset_days, sort_order, id';
+const insertTask = db.prepare(`INSERT INTO event_tasks (event_id, title, category, due_date, owner, notes, sort_order, offset_days, template_id)
+                               VALUES (?,?,?,?,?,?,?,?,?)`);
+function addFromTemplate(ev, t, i) {
+  return insertTask.run(ev.id, t.title, t.category, addDays(ev.event_date, t.offset_days), t.owner, t.notes, i, t.offset_days, t.id);
+}
+// A task counts as "from" a standard task if it is linked by id, or (older data) has the same title.
+function templateMatch(tasks, t) {
+  return tasks.filter((x) => x.template_id === t.id || (x.template_id == null && x.title.toLowerCase() === t.title.toLowerCase()));
+}
+// Add standard tasks the event is missing (optionally only some), and optionally refresh linked open tasks.
+function syncEvent(ev, { templateIds = null, updateExisting = false } = {}) {
+  const tasks = db.prepare('SELECT * FROM event_tasks WHERE event_id = ?').all(ev.id);
+  const upd = db.prepare('UPDATE event_tasks SET title=?, category=?, owner=?, offset_days=?, due_date=?, template_id=? WHERE id=?');
+  let added = 0, updated = 0;
+  db.prepare(TEMPLATE_ORDER).all().forEach((t, i) => {
+    if (templateIds && !templateIds.includes(t.id)) return;
+    const linked = templateMatch(tasks, t);
+    if (!linked.length) { addFromTemplate(ev, t, i); added++; return; }
+    if (!updateExisting) return;
+    linked.filter((x) => !x.done).forEach((x) => {
+      const due = addDays(ev.event_date, t.offset_days);
+      if (x.title !== t.title || x.category !== t.category || x.owner !== t.owner || x.offset_days !== t.offset_days || x.due_date !== due || x.template_id !== t.id) {
+        upd.run(t.title, t.category, t.owner, t.offset_days, due, t.id, x.id); updated++;
+      }
+    });
+  });
+  return { added, updated };
+}
+function tx(fn) {
+  db.exec('BEGIN');
+  try { const r = fn(); db.exec('COMMIT'); return r; } catch (e) { db.exec('ROLLBACK'); throw e; }
+}
+
 const routes = {
   'GET /api/state': () => {
     const events = db.prepare('SELECT * FROM events ORDER BY archived, event_date').all();
     const tasks = db.prepare(`SELECT t.*, e.name AS event_name, e.event_date FROM event_tasks t JOIN events e ON e.id = t.event_id
                               ORDER BY t.due_date IS NULL, t.due_date, t.sort_order, t.id`).all();
-    const template = db.prepare('SELECT * FROM template_tasks ORDER BY offset_days, sort_order, id').all();
+    const template = db.prepare(TEMPLATE_ORDER).all();
     return { events, tasks, template };
   },
 
@@ -170,18 +207,15 @@ const routes = {
     const b = await readJson(req);
     const name = str(b.name, 200);
     if (!name || !isYmd(b.event_date)) return [400, { error: 'Name and event date are required' }];
-    db.exec('BEGIN');
-    try {
+    return tx(() => {
       const { lastInsertRowid: id } = db.prepare('INSERT INTO events (name, event_date, location, notes) VALUES (?,?,?,?)')
         .run(name, b.event_date, str(b.location, 200), str(b.notes));
       if (b.apply_template !== false) {
-        const tmpl = db.prepare('SELECT * FROM template_tasks ORDER BY offset_days, sort_order, id').all();
-        const ins = db.prepare('INSERT INTO event_tasks (event_id, title, category, due_date, owner, notes, sort_order) VALUES (?,?,?,?,?,?,?)');
-        tmpl.forEach((t, i) => ins.run(id, t.title, t.category, addDays(b.event_date, t.offset_days), t.owner, t.notes, i));
+        const ev = { id, event_date: b.event_date };
+        db.prepare(TEMPLATE_ORDER).all().forEach((t, i) => addFromTemplate(ev, t, i));
       }
-      db.exec('COMMIT');
       return eventWithTasks(id);
-    } catch (e) { db.exec('ROLLBACK'); throw e; }
+    });
   },
 
   'PATCH /api/events/:id': async (req, id) => {
@@ -195,19 +229,19 @@ const routes = {
       notes: b.notes !== undefined ? str(b.notes) : ev.notes,
       archived: b.archived !== undefined ? (b.archived ? 1 : 0) : ev.archived,
     };
-    db.exec('BEGIN');
-    try {
+    tx(() => {
       db.prepare('UPDATE events SET name=?, event_date=?, location=?, notes=?, archived=? WHERE id=?')
         .run(next.name, next.event_date, next.location, next.notes, next.archived, id);
-      // Shift open task due dates when the event date moves (optional).
-      if (b.shift_tasks && next.event_date !== ev.event_date) {
-        const delta = Math.round((Date.parse(next.event_date) - Date.parse(ev.event_date)) / 864e5);
-        const rows = db.prepare('SELECT id, due_date FROM event_tasks WHERE event_id = ? AND due_date IS NOT NULL AND done = 0').all(id);
+      if (next.event_date !== ev.event_date) {
         const upd = db.prepare('UPDATE event_tasks SET due_date = ? WHERE id = ?');
-        rows.forEach((r) => upd.run(addDays(r.due_date, delta), r.id));
+        const open = db.prepare('SELECT id, due_date, offset_days FROM event_tasks WHERE event_id = ? AND done = 0').all(id);
+        const delta = Math.round((Date.parse(next.event_date) - Date.parse(ev.event_date)) / 864e5);
+        open.forEach((r) => {
+          if (r.offset_days != null) upd.run(addDays(next.event_date, r.offset_days), r.id);          // lead-time tasks always follow race day
+          else if (b.shift_tasks && r.due_date) upd.run(addDays(r.due_date, delta), r.id);             // fixed dates move only if asked
+        });
       }
-      db.exec('COMMIT');
-    } catch (e) { db.exec('ROLLBACK'); throw e; }
+    });
     return eventWithTasks(id);
   },
 
@@ -216,26 +250,32 @@ const routes = {
     return { ok: true };
   },
 
+  // body: title, category, owner, notes, and either offset_days (lead time) or due_date (fixed)
   'POST /api/events/:id/tasks': async (req, id) => {
     const b = await readJson(req);
     const title = str(b.title, 300);
     if (!title) return [400, { error: 'Title is required' }];
-    if (!db.prepare('SELECT 1 FROM events WHERE id = ?').get(id)) return [404, { error: 'Event not found' }];
-    const { lastInsertRowid } = db.prepare('INSERT INTO event_tasks (event_id, title, category, due_date, owner, notes, sort_order) VALUES (?,?,?,?,?,?,?)')
-      .run(id, title, str(b.category, 80) || 'General', isYmd(b.due_date) ? b.due_date : null, str(b.owner, 100), str(b.notes), 999);
+    const ev = db.prepare('SELECT * FROM events WHERE id = ?').get(id);
+    if (!ev) return [404, { error: 'Event not found' }];
+    const off = intOrNull(b.offset_days);
+    const due = off != null ? addDays(ev.event_date, off) : isYmd(b.due_date) ? b.due_date : null;
+    const { lastInsertRowid } = insertTask.run(id, title, str(b.category, 80) || 'General', due, str(b.owner, 100), str(b.notes), 999, off, null);
     return db.prepare('SELECT * FROM event_tasks WHERE id = ?').get(lastInsertRowid);
   },
 
   'PATCH /api/tasks/:id': async (req, id) => {
     const b = await readJson(req);
-    const t = db.prepare('SELECT * FROM event_tasks WHERE id = ?').get(id);
+    const t = db.prepare('SELECT t.*, e.event_date FROM event_tasks t JOIN events e ON e.id = t.event_id WHERE t.id = ?').get(id);
     if (!t) return [404, { error: 'Not found' }];
     const done = b.done !== undefined ? (b.done ? 1 : 0) : t.done;
     const doneAt = done ? (t.done ? t.done_at : new Date().toISOString()) : null;
-    db.prepare('UPDATE event_tasks SET title=?, category=?, due_date=?, owner=?, notes=?, done=?, done_at=? WHERE id=?').run(
+    let off = t.offset_days, due = t.due_date;
+    if (b.offset_days !== undefined && intOrNull(b.offset_days) != null) { off = intOrNull(b.offset_days); due = addDays(t.event_date, off); }
+    else if (b.offset_days !== undefined || b.due_date !== undefined) { off = null; due = b.due_date !== undefined ? (isYmd(b.due_date) ? b.due_date : null) : due; }
+    db.prepare('UPDATE event_tasks SET title=?, category=?, due_date=?, offset_days=?, owner=?, notes=?, done=?, done_at=? WHERE id=?').run(
       b.title !== undefined ? str(b.title, 300) || t.title : t.title,
       b.category !== undefined ? str(b.category, 80) || 'General' : t.category,
-      b.due_date !== undefined ? (isYmd(b.due_date) ? b.due_date : null) : t.due_date,
+      due, off,
       b.owner !== undefined ? str(b.owner, 100) : t.owner,
       b.notes !== undefined ? str(b.notes) : t.notes,
       done, doneAt, id);
@@ -252,7 +292,7 @@ const routes = {
     const title = str(b.title, 300);
     if (!title) return [400, { error: 'Title is required' }];
     const { lastInsertRowid } = db.prepare('INSERT INTO template_tasks (title, category, offset_days, owner, notes, sort_order) VALUES (?,?,?,?,?,?)')
-      .run(title, str(b.category, 80) || 'General', Number.parseInt(b.offset_days, 10) || 0, str(b.owner, 100), str(b.notes), 999);
+      .run(title, str(b.category, 80) || 'General', intOrNull(b.offset_days) ?? 0, str(b.owner, 100), str(b.notes), 999);
     return db.prepare('SELECT * FROM template_tasks WHERE id = ?').get(lastInsertRowid);
   },
 
@@ -263,7 +303,7 @@ const routes = {
     db.prepare('UPDATE template_tasks SET title=?, category=?, offset_days=?, owner=?, notes=? WHERE id=?').run(
       b.title !== undefined ? str(b.title, 300) || t.title : t.title,
       b.category !== undefined ? str(b.category, 80) || 'General' : t.category,
-      b.offset_days !== undefined ? Number.parseInt(b.offset_days, 10) || 0 : t.offset_days,
+      b.offset_days !== undefined ? intOrNull(b.offset_days) ?? 0 : t.offset_days,
       b.owner !== undefined ? str(b.owner, 100) : t.owner,
       b.notes !== undefined ? str(b.notes) : t.notes, id);
     return db.prepare('SELECT * FROM template_tasks WHERE id = ?').get(id);
@@ -274,17 +314,13 @@ const routes = {
     return { ok: true };
   },
 
-  // Add any template tasks an existing event is missing (matched by title).
-  'POST /api/events/:id/apply-template': (req, id) => {
+  // body: { template_ids?: [ids] (default: all), update_existing?: bool }
+  'POST /api/events/:id/apply-template': async (req, id) => {
+    const b = await readJson(req);
     const ev = db.prepare('SELECT * FROM events WHERE id = ?').get(id);
     if (!ev) return [404, { error: 'Not found' }];
-    const have = new Set(db.prepare('SELECT lower(title) AS t FROM event_tasks WHERE event_id = ?').all(id).map((r) => r.t));
-    const ins = db.prepare('INSERT INTO event_tasks (event_id, title, category, due_date, owner, notes, sort_order) VALUES (?,?,?,?,?,?,?)');
-    let added = 0;
-    db.prepare('SELECT * FROM template_tasks ORDER BY offset_days, sort_order, id').all().forEach((t, i) => {
-      if (!have.has(t.title.toLowerCase())) { ins.run(id, t.title, t.category, addDays(ev.event_date, t.offset_days), t.owner, t.notes, i); added++; }
-    });
-    return { added };
+    const ids = Array.isArray(b.template_ids) ? b.template_ids.map(Number) : null;
+    return tx(() => syncEvent(ev, { templateIds: ids, updateExisting: !!b.update_existing }));
   },
 };
 

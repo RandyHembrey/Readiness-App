@@ -25,7 +25,8 @@ Internet ─► GoDaddy DNS ─► router: WAN 80/443 only ─► NAS :8080/:844
 There's a hosted copy for developing the app with Susanne. It's a private claude.ai artifact page,
 shared from its page on claude.ai, and anyone it's shared with as Contributor or Editor edits the
 same live data. Rebuild it with `node race-todo/demo/build-artifact.js`. That inlines `seed.js`,
-`demo/demo-api.js` (an offline fallback) and `demo/db-api.js` (shared storage) into one page. The
+`demo/core-api.js` (the browser version of the server's rules), `demo/demo-api.js` (an offline
+fallback) and `demo/db-api.js` (shared storage) into one page. The
 UI is the same `public/index.html` the NAS serves, so moving to the NAS means deploying the stack
 below and re-entering (or exporting) the data.
 
@@ -62,6 +63,14 @@ below and re-entering (or exporting) the data.
     all-department go/no-go meeting.
   Each task has a default owner, and the event page can filter by owner (for example, "Marketing").
   To pull newly added tasks into an existing event, use "Sync standard list" on that event.
+- **Manage tasks (per event):** a control panel on each event for adding, changing and removing
+  tasks inline. Each task is marked **Standard** or **Ad-hoc**. You can add any standard tasks the
+  event is missing (pick from a list), add ad-hoc tasks, and use "Update from standard" to bring
+  open standard tasks in line with the current checklist.
+- **Lead times:** every task, standard or ad-hoc, can be due N days before race day, N days after,
+  on race day, or on a fixed date. Lead-time tasks move automatically when the race date changes.
+  On the standard checklist, "Apply to upcoming events" rolls edits into events already on the
+  calendar. Completed and ad-hoc tasks are never overwritten.
 - **Next race readiness by area:** a progress bar for each of the four areas on the dashboard.
 - `DEMO_DATA=1` loads a mock six-round USF Pro season into an empty database, for demos.
 - Protected by one shared password (`RACE_TODO_PASSWORD`), with a 30-day sign-in cookie and a

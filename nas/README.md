@@ -131,7 +131,10 @@ failed logins in 5 minutes).
 In hembrey.com → DNS → Records:
 - **Dynamic home IP (typical):** in DSM → External Access → DDNS, add a free Synology hostname,
   for example `hembrey-apps.synology.me`. That only gives your IP a name; it opens nothing.
-  In GoDaddy, add `CNAME apps → hembrey-apps.synology.me` and `CNAME races → hembrey-apps.synology.me`.
+  In GoDaddy, add **`CNAME * → hembrey-apps.synology.me`**. This one wildcard record covers
+  `apps`, `races` and every future app, so new apps never need a DNS change. Caddy still answers
+  only for hostnames listed in its Caddyfile, and gets a separate certificate for each.
+  (If you'd rather list them explicitly, add a `CNAME` for each of `apps` and `races` instead.)
 - **Static IP:** add `A apps → <public IP>` and `A races → <public IP>`.
 
 (GoDaddy's DNS API is closed to most accounts now, so a CNAME to a Synology DDNS name is the
@@ -144,13 +147,28 @@ reliable way to follow a changing IP.)
   should answer.
 
 ## Adding another app
-1. Put its code in `/apps/hembrey-apps/<app>/`.
-2. Add a service to `docker-compose.yml` on `networks: [apps]` only, with no `ports:`, and the same
-   hardening block as `race-todo`. If it really needs outbound internet, it needs its own small
-   egress network. Don't attach it to `edge`.
-3. Add `newapp.hembrey.com { import common; reverse_proxy <service>:<port> }` to the Caddyfile.
-4. Add it to `apps-portal/html/apps.json`.
-5. Add a GoDaddy CNAME for `newapp`, then click Build in Container Manager.
+```
+node new-app.js recipes "Family Recipes" "Shared recipe box" 🍲
+```
+This command:
+- Creates `recipes/` from `_template/app`, a zero-dependency Node starter with password sign-in,
+  a data folder and a health check.
+- Adds a hardened `recipes` service to `docker-compose.yml`. It's on the internal `apps` network
+  only, with no published ports, a read-only filesystem and dropped capabilities.
+- Adds a `recipes.hembrey.com` route to the Caddyfile and a card to the portal's `apps.json`.
+- Adds `RECIPES_PASSWORD` to `.env.example`.
+
+Then set `RECIPES_PASSWORD` in the NAS `.env`, review the compose diff, and click **Build** in
+Container Manager. The wildcard DNS record already covers the new name. Running the script again
+is safe: it skips anything that already exists.
+
+An app that isn't Node (Python, or an off-the-shelf image) follows the same pattern: put it on
+`networks: [apps]` only, with no `ports:`, copy the hardening block, and add a Caddy route plus a
+portal card. If it really needs outbound internet (for example, to call an API), give it its own
+small egress network. Never attach it to `edge`.
+
+**Prototype first, if you like:** a new app can start life as a private claude.ai page, like the
+race tracker mock-up, and move to the NAS once it has settled.
 
 ## Backups
 App data lives in `/apps/hembrey-apps/volumes/`. Include the `apps` share in Hyper Backup.

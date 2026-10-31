@@ -1,0 +1,27 @@
+# Reverse proxy + automatic Let's Encrypt HTTPS for every *.hembrey.com app on the NAS.
+# To add an app: add a block below, add it to apps-portal/html/apps.json,
+# and add a GoDaddy DNS record for the new subdomain.
+{
+	email {$ACME_EMAIL}
+}
+
+(common) {
+	encode gzip
+	header {
+		Strict-Transport-Security "max-age=31536000"
+		X-Content-Type-Options nosniff
+		Referrer-Policy strict-origin-when-cross-origin
+		-Server
+	}
+}
+
+apps.hembrey.com {
+	import common
+	root * /srv/apps-portal
+	file_server
+}
+
+races.hembrey.com {
+	import common
+	reverse_proxy race-todo:3000
+}

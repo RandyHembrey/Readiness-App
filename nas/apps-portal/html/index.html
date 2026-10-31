@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Hembrey Apps</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🏠</text></svg>">
+<style>
+  :root{--bg:#f6f6f3;--panel:#fff;--border:rgba(11,11,11,.10);--fg:#0b0b0b;--muted:#6f6f69;--accent:#2a62d9}
+  @media (prefers-color-scheme: dark){:root{--bg:#111110;--panel:#1a1a19;--border:rgba(255,255,255,.10);--fg:#f3f3ef;--muted:#9a9a93;--accent:#5b8cf0}}
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--fg);font:15px/1.45 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif}
+  main{max-width:960px;margin:0 auto;padding:48px 20px}
+  h1{font-size:1.6rem;margin:0 0 4px} p.sub{color:var(--muted);margin:0 0 28px}
+  .grid{display:grid;gap:14px;grid-template-columns:repeat(auto-fill,minmax(240px,1fr))}
+  a.app{display:flex;gap:14px;align-items:flex-start;background:var(--panel);border-radius:14px;box-shadow:0 0 0 1px var(--border);padding:18px;color:inherit;text-decoration:none;transition:box-shadow .15s,transform .15s}
+  a.app:hover{box-shadow:0 0 0 2px var(--accent);transform:translateY(-1px)}
+  .icon{font-size:1.9rem;line-height:1;width:44px;height:44px;display:grid;place-items:center;border-radius:10px;background:var(--bg);flex:none}
+  .name{font-weight:600} .desc{color:var(--muted);font-size:.85rem;margin-top:2px}
+  input{font:inherit;width:100%;max-width:320px;padding:8px 11px;border-radius:8px;border:1px solid var(--border);background:var(--panel);color:var(--fg);margin-bottom:18px}
+</style>
+</head>
+<body>
+<main>
+  <h1>🏠 Hembrey Apps</h1>
+  <p class="sub">Personal apps hosted at home</p>
+  <input id="q" type="search" placeholder="Filter apps…" aria-label="Filter apps">
+  <div class="grid" id="grid"></div>
+</main>
+<script>
+var apps = [];
+function esc(s){ return String(s||"").replace(/[&<>"']/g,function(c){return {"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c];}); }
+function draw(){
+  var q = document.getElementById("q").value.toLowerCase();
+  document.getElementById("grid").innerHTML = apps.filter(function(a){ return !q || (a.name+" "+a.description).toLowerCase().indexOf(q) !== -1; })
+    .map(function(a){ return '<a class="app" href="'+esc(a.url)+'"><div class="icon">'+esc(a.icon||"📦")+'</div><div><div class="name">'+esc(a.name)+'</div><div class="desc">'+esc(a.description)+'</div></div></a>'; }).join("");
+}
+fetch("apps.json",{cache:"no-store"}).then(function(r){return r.json();}).then(function(j){ apps=j; draw(); });
+document.getElementById("q").addEventListener("input", draw);
+</script>
+</body>
+</html>

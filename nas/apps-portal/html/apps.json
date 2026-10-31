@@ -1,0 +1,14 @@
+[
+  {
+    "name": "Race Event To-Do",
+    "description": "Susanne's race checklists, due dates and completion dashboard",
+    "url": "https://races.hembrey.com",
+    "icon": "🏁"
+  },
+  {
+    "name": "Synology DSM",
+    "description": "NAS admin (home network only)",
+    "url": "https://192.168.10.72:5001",
+    "icon": "🗄️"
+  }
+]

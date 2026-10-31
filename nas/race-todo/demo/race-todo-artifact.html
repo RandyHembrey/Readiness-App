@@ -1,0 +1,813 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>USF Pro Championships · Event Readiness</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🏁</text></svg>">
+<style>
+  :root{
+    --bg:#f6f6f3; --panel:#ffffff; --panel-2:#f0f0ec; --border:rgba(11,11,11,.10); --fg:#0b0b0b; --fg-2:#4a4a46; --muted:#6f6f69;
+    --accent:#2a62d9; --accent-track:#d9e4fa; --grid:#e1e0d9; --axis:#c3c2b7;
+    --good:#0ca30c; --good-text:#006300; --warning:#fab219; --critical:#d03b3b;
+  }
+  @media (prefers-color-scheme: dark){
+    :root{ --bg:#111110; --panel:#1a1a19; --panel-2:#232321; --border:rgba(255,255,255,.10); --fg:#f3f3ef; --fg-2:#c8c8c2; --muted:#9a9a93;
+      --accent:#5b8cf0; --accent-track:#24345a; --grid:#2c2c2a; --axis:#383835; --good-text:#0ca30c; }
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--fg);font:15px/1.45 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif}
+  #app{max-width:1100px;margin:0 auto;padding:0 16px 64px}
+  header{display:flex;align-items:center;gap:16px;flex-wrap:wrap;padding:14px 0;border-bottom:1px solid var(--border);margin-bottom:18px}
+  header h1{font-size:1.15rem;margin:0;margin-right:auto}
+  nav{display:flex;gap:4px}
+  nav button{background:none;border:none;color:var(--fg-2);padding:7px 12px;border-radius:8px;cursor:pointer;font-size:.9rem}
+  nav button.active{background:var(--panel);color:var(--fg);box-shadow:0 0 0 1px var(--border);font-weight:600}
+  h2{font-size:1rem;margin:0 0 10px}
+  .muted{color:var(--muted);font-size:.85rem}
+  .btn{display:inline-flex;align-items:center;gap:6px;background:var(--accent);color:#fff;border:none;border-radius:8px;padding:8px 14px;font-size:.88rem;cursor:pointer;white-space:nowrap}
+  .btn.secondary{background:var(--panel-2);color:var(--fg);box-shadow:inset 0 0 0 1px var(--border)}
+  .btn.ghost{background:none;color:var(--muted);padding:4px 8px}
+  .btn.danger{background:var(--critical)}
+  input,select,textarea{font:inherit;font-size:.9rem;padding:7px 9px;border-radius:7px;border:1px solid var(--border);background:var(--panel-2);color:var(--fg);width:100%}
+  input[type=checkbox]{width:18px;height:18px;accent-color:var(--good);cursor:pointer;flex:none}
+  label{font-size:.78rem;color:var(--muted);display:block;margin-bottom:3px}
+  .card{background:var(--panel);border-radius:12px;box-shadow:0 0 0 1px var(--border);padding:16px;margin-bottom:16px}
+  .grid{display:grid;gap:12px}
+  .tiles{grid-template-columns:repeat(auto-fit,minmax(150px,1fr));margin-bottom:16px}
+  .tile{background:var(--panel);border-radius:12px;box-shadow:0 0 0 1px var(--border);padding:14px 16px}
+  .tile .label{font-size:.8rem;color:var(--muted)}
+  .tile .value{font-size:1.7rem;font-weight:600;margin-top:2px;font-variant-numeric:tabular-nums}
+  .tile .sub{font-size:.78rem;color:var(--fg-2)}
+  .two{grid-template-columns:1fr 1fr} @media (max-width:820px){.two{grid-template-columns:1fr}}
+  .status{display:inline-flex;align-items:center;gap:4px;font-size:.78rem;font-weight:600;white-space:nowrap}
+  .status.overdue{color:var(--critical)} .status.soon{color:var(--fg-2)} .status.done{color:var(--good-text)}
+  .status .ico{display:inline-grid;place-items:center;width:15px;height:15px;border-radius:50%;font-size:10px;color:#fff;line-height:1}
+  .status.overdue .ico{background:var(--critical)} .status.soon .ico{background:var(--warning);color:#0b0b0b} .status.done .ico{background:var(--good)}
+  .task{display:flex;align-items:flex-start;gap:10px;padding:9px 0;border-top:1px solid var(--grid)}
+  .task:first-child{border-top:none}
+  .task .body{flex:1;min-width:0}
+  .task .title{font-size:.92rem}
+  .task.is-done .title{text-decoration:line-through;color:var(--muted)}
+  .task .meta{font-size:.78rem;color:var(--muted);display:flex;gap:10px;flex-wrap:wrap;margin-top:2px}
+  .pill{font-size:.72rem;padding:1px 8px;border-radius:999px;background:var(--panel-2);color:var(--fg-2);box-shadow:inset 0 0 0 1px var(--border)}
+  .event-row{display:grid;grid-template-columns:1fr 220px;gap:16px;align-items:center;padding:12px 0;border-top:1px solid var(--grid);cursor:pointer}
+  .event-row:first-of-type{border-top:none}
+  .event-row:hover .ev-name{color:var(--accent)}
+  .ev-name{font-weight:600}
+  @media (max-width:600px){.event-row{grid-template-columns:1fr}}
+  .meter{height:8px;border-radius:999px;background:var(--accent-track);overflow:hidden}
+  .meter > span{display:block;height:100%;border-radius:999px;background:var(--accent)}
+  .meter.complete > span{background:var(--good)}
+  .meter-label{display:flex;justify-content:space-between;font-size:.78rem;color:var(--fg-2);margin-top:5px;font-variant-numeric:tabular-nums}
+  /* due-by-week bar chart */
+  .chart{position:relative}
+  .chart svg{display:block;width:100%;height:auto;overflow:visible}
+  .chart .tip{position:absolute;pointer-events:none;background:var(--panel);color:var(--fg);box-shadow:0 0 0 1px var(--border),0 4px 14px rgba(0,0,0,.15);border-radius:8px;padding:6px 9px;font-size:.78rem;white-space:nowrap;transform:translate(-50%,-100%);margin-top:-8px;display:none}
+  .toolbar{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:14px}
+  .toolbar select,.toolbar input{width:auto}
+  .form-row{display:grid;gap:10px;grid-template-columns:2fr 1fr 1fr 1fr auto;align-items:end}
+  @media (max-width:760px){.form-row{grid-template-columns:1fr 1fr}}
+  .cat-head{font-size:.75rem;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);margin:16px 0 2px;font-weight:600}
+  dialog{border:none;border-radius:14px;background:var(--panel);color:var(--fg);padding:20px;width:min(520px,94vw);box-shadow:0 10px 40px rgba(0,0,0,.3)}
+  dialog::backdrop{background:rgba(0,0,0,.4)}
+  .field{margin-bottom:10px}
+  .actions{display:flex;gap:8px;justify-content:flex-end;margin-top:14px}
+  #toast{position:fixed;bottom:18px;left:50%;transform:translateX(-50%);background:var(--fg);color:var(--bg);padding:9px 16px;border-radius:8px;font-size:.85rem;display:none;z-index:10}
+  .login{max-width:340px;margin:12vh auto;text-align:center}
+  .empty{color:var(--muted);font-size:.88rem;padding:8px 0}
+  table.tmpl{width:100%;border-collapse:collapse;font-size:.88rem}
+  table.tmpl td,table.tmpl th{padding:6px 6px;border-top:1px solid var(--grid);text-align:left;vertical-align:middle}
+  table.tmpl th{font-size:.75rem;color:var(--muted);font-weight:600;border-top:none}
+  table.tmpl input{padding:5px 7px}
+  a{color:var(--accent);text-decoration:none} a:hover{text-decoration:underline}
+  .sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0)}
+</style>
+</head>
+<body>
+<div id="app"></div>
+<div style="max-width:1100px;margin:-40px auto 30px;padding:0 16px;font-size:.75rem;color:var(--muted)">Working mock-up for development. Shared with everyone this page is shared with; changes save automatically.</div>
+
+<div id="toast"></div>
+<dialog id="dlg"></dialog>
+<dialog id="dlg2"></dialog>
+<script>window.RACE_DEFER_BACKEND = true;</script>
+<script>
+// Standard checklist + demo data for the USF Pro Championships business-manager portal.
+// Shared by server.js (Node) and the static demo page (browser).
+(function (root) {
+  // [category, days relative to race weekend, task, default owner]
+  var TEMPLATE = [
+    // Venue contract & bilateral deliverables (promoter/operator <-> race track)
+    ['Venue Contract', -240, 'Negotiate & execute venue promoter agreement', 'Susanne'],
+    ['Venue Contract', -210, 'Confirm track rental dates & on-track session blocks with venue', 'Susanne'],
+    ['Venue Contract', -180, 'Exchange certificates of insurance (promoter <-> venue)', 'Susanne'],
+    ['Venue Contract', -150, 'Confirm paddock, garage & transporter parking allocation', 'Susanne'],
+    ['Venue Contract', -120, 'Agree hospitality, suites, tickets & credential allocations', 'Susanne'],
+    ['Venue Contract', -90, 'Mid-point review of bilateral deliverables matrix with venue', 'Susanne'],
+    ['Venue Contract', -30, 'Venue deliverable confirmed: safety, medical, fire/rescue & corner workers', 'Susanne'],
+    ['Venue Contract', -30, 'Venue deliverable confirmed: series signage placements & track branding', 'Susanne'],
+    ['Venue Contract', -21, 'Promoter deliverables sent: schedule, entry list, logos, sanction docs', 'Susanne'],
+    ['Venue Contract', -14, 'Final walk-through call with venue operations', 'Susanne'],
+    ['Venue Contract', 3, 'Post-event venue debrief & deliverables compliance review', 'Susanne'],
+    ['Venue Contract', 30, 'Venue financial settlement & contract close-out', 'Susanne'],
+    // Pre-event information distribution
+    ['Info Distribution', -90, 'Publish supplemental regulations to competitors', 'Susanne'],
+    ['Info Distribution', -60, 'Send hotel & travel information to staff', 'Susanne'],
+    ['Info Distribution', -45, 'Distribute partner activation brief to sponsors/partners', 'Susanne'],
+    ['Info Distribution', -30, 'Publish schedule of events (staff, competitors, partners)', 'Susanne'],
+    ['Info Distribution', -21, 'Publish paddock map, load-in plan & parking info', 'Susanne'],
+    ['Info Distribution', -14, 'Send credential instructions to competitors, staff & partners', 'Susanne'],
+    ['Info Distribution', -10, 'Staff travel memo & duty roster', 'Susanne'],
+    ['Info Distribution', -7, 'Final competitor bulletin', 'Susanne'],
+    ['Info Distribution', -3, 'Distribute race-weekend contact sheet', 'Susanne'],
+    // Banking
+    ['Banking', -230, 'Pay venue contract deposit', 'Susanne'],
+    ['Banking', -120, 'Open event budget & cost codes', 'Susanne'],
+    ['Banking', -60, 'Reconcile entry fees received vs. entry list', 'Susanne'],
+    ['Banking', -30, 'Wire venue balance per contract terms', 'Susanne'],
+    ['Banking', -14, 'Fund prize & point-fund account', 'Susanne'],
+    ['Banking', -7, 'Order race-weekend cash float', 'Susanne'],
+    ['Banking', 7, 'Pay vendor & venue invoices', 'Susanne'],
+    ['Banking', 14, 'Distribute prize money & awards payments', 'Susanne'],
+    ['Banking', 21, 'Reconcile event P&L and staff expense reports', 'Susanne'],
+    // Department readiness
+    ['Dept Readiness', -60, 'Technical: tech inspection plan, scales & fuel confirmed', 'Technical'],
+    ['Dept Readiness', -30, 'Logistics: transporter & freight schedule confirmed', 'Logistics'],
+    ['Dept Readiness', -30, 'Marketing: broadcast/streaming & content plan confirmed', 'Marketing'],
+    ['Dept Readiness', -21, 'Marketing: partner signage & assets delivered to venue', 'Marketing'],
+    ['Dept Readiness', -14, 'Logistics: hospitality & catering confirmed', 'Logistics'],
+    ['Dept Readiness', -7, 'Technical readiness sign-off', 'Technical'],
+    ['Dept Readiness', -7, 'Logistics readiness sign-off', 'Logistics'],
+    ['Dept Readiness', -7, 'Marketing readiness sign-off', 'Marketing'],
+    ['Dept Readiness', -2, 'All-department go / no-go readiness meeting', 'Susanne'],
+  ];
+
+  // Mock season. Dates are relative to "today" so the demo always looks live.
+  // done: fraction of past-due tasks already completed (the rest show as overdue).
+  var DEMO_EVENTS = [
+    { name: 'USF Pro Championships - Round 1', location: 'Sebring International Raceway', inDays: 26, done: 0.85,
+      notes: 'Season opener. Venue contract countersigned; awaiting venue COI renewal.' },
+    { name: 'USF Pro Championships - Round 2', location: 'NOLA Motorsports Park', inDays: 61, done: 0.8, notes: '' },
+    { name: 'USF Pro Championships - Round 3', location: 'Barber Motorsports Park', inDays: 103, done: 0.9, notes: '' },
+    { name: 'USF Pro Championships - Round 4', location: 'Indianapolis Motor Speedway (Road Course)', inDays: 138, done: 0.75, notes: 'Joint weekend: hospitality allocation shared with headline series.' },
+    { name: 'USF Pro Championships - Round 5', location: 'Road America', inDays: 187, done: 1, notes: '' },
+    { name: 'USF Pro Championships - Round 6', location: 'Mid-Ohio Sports Car Course', inDays: 222, done: 1, notes: '' },
+  ];
+
+  var api = { TEMPLATE: TEMPLATE, DEMO_EVENTS: DEMO_EVENTS };
+  if (typeof module === 'object' && module.exports) module.exports = api;
+  else root.RACE_SEED = api;
+})(this);
+
+</script>
+<script>
+// In-browser stand-in for server.js so the UI can be demoed as a single static page.
+// Data lives in localStorage; "Reset demo" in the footer restores the mock season.
+window.RACE_MAKE_LOCAL_API = function () {
+  var KEY = 'race-todo-demo-v1';
+  var SEED = window.RACE_SEED;
+  function ymd(d) { return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0'); }
+  function addDays(s, n) { var d = new Date(s + 'T12:00:00'); d.setDate(d.getDate() + Number(n || 0)); return ymd(d); }
+  function fresh() {
+    var db = { seq: 1, template: [], events: [], tasks: [] };
+    SEED.TEMPLATE.forEach(function (t, i) { db.template.push({ id: db.seq++, category: t[0], offset_days: t[1], title: t[2], owner: t[3] || '', notes: '', sort_order: i }); });
+    var today = ymd(new Date()), soon = addDays(today, 21);
+    SEED.DEMO_EVENTS.forEach(function (e, ei) {
+      var ev = { id: db.seq++, name: e.name, event_date: addDays(today, e.inDays), location: e.location, notes: e.notes, archived: 0 };
+      db.events.push(ev);
+      db.template.forEach(function (t, i) {
+        var due = addDays(ev.event_date, t.offset_days), hsh = (ei * 31 + i * 17) % 100;
+        var done = due < today ? hsh < e.done * 100 : (due < soon && hsh < 25);
+        db.tasks.push({ id: db.seq++, event_id: ev.id, title: t.title, category: t.category, due_date: due, owner: t.owner, notes: '', sort_order: i, done: done ? 1 : 0, done_at: done ? new Date().toISOString() : null });
+      });
+    });
+    return db;
+  }
+  var db;
+  try { db = JSON.parse(localStorage.getItem(KEY)); } catch (e) {}
+  if (!db) db = fresh();
+  function save() { try { localStorage.setItem(KEY, JSON.stringify(db)); } catch (e) {} }
+  save();
+  window.RACE_DEMO_RESET = function () { db = fresh(); save(); location.hash = ''; location.reload(); };
+
+  function byDue(a, b) { return (a.due_date || '9999') < (b.due_date || '9999') ? -1 : (a.due_date || '9999') > (b.due_date || '9999') ? 1 : a.sort_order - b.sort_order; }
+  function evName(t) { var e = db.events.find(function (x) { return x.id === t.event_id; }); return Object.assign({}, t, { event_name: e.name, event_date: e.event_date }); }
+  function pick(o, b, k) { return b[k] !== undefined ? b[k] : o[k]; }
+  function copyTemplate(ev, onlyMissing) {
+    var have = new Set(db.tasks.filter(function (t) { return t.event_id === ev.id; }).map(function (t) { return t.title.toLowerCase(); }));
+    var added = 0;
+    db.template.slice().sort(function (a, b) { return a.offset_days - b.offset_days; }).forEach(function (t, i) {
+      if (onlyMissing && have.has(t.title.toLowerCase())) return;
+      db.tasks.push({ id: db.seq++, event_id: ev.id, title: t.title, category: t.category, due_date: addDays(ev.event_date, t.offset_days), owner: t.owner, notes: t.notes, sort_order: i, done: 0, done_at: null });
+      added++;
+    });
+    return added;
+  }
+
+  function handle(method, url, b) {
+    b = b || {};
+    var m, id;
+    if (url === '/api/me') return { authed: true, passwordRequired: false, title: 'USF Pro Championships · Event Readiness (demo)' };
+    if (url === '/api/state') return {
+      events: db.events.slice().sort(function (a, c) { return a.archived - c.archived || (a.event_date < c.event_date ? -1 : 1); }),
+      tasks: db.tasks.slice().sort(byDue).map(evName),
+      template: db.template.slice().sort(function (a, c) { return a.offset_days - c.offset_days || a.sort_order - c.sort_order; }),
+    };
+    if (method === 'POST' && url === '/api/events') {
+      if (!b.name || !b.event_date) throw new Error('Name and event date are required');
+      var ev = { id: db.seq++, name: b.name, event_date: b.event_date, location: b.location || '', notes: b.notes || '', archived: 0 };
+      db.events.push(ev);
+      if (b.apply_template !== false) copyTemplate(ev, false);
+      return ev;
+    }
+    if ((m = url.match(/^\/api\/events\/(\d+)$/))) {
+      id = +m[1];
+      var e = db.events.find(function (x) { return x.id === id; });
+      if (method === 'DELETE') { db.events = db.events.filter(function (x) { return x.id !== id; }); db.tasks = db.tasks.filter(function (t) { return t.event_id !== id; }); return { ok: true }; }
+      var old = e.event_date;
+      ['name', 'location', 'notes'].forEach(function (k) { e[k] = pick(e, b, k); });
+      if (b.event_date) e.event_date = b.event_date;
+      if (b.archived !== undefined) e.archived = b.archived ? 1 : 0;
+      if (b.shift_tasks && old !== e.event_date) {
+        var delta = Math.round((Date.parse(e.event_date) - Date.parse(old)) / 864e5);
+        db.tasks.forEach(function (t) { if (t.event_id === id && !t.done && t.due_date) t.due_date = addDays(t.due_date, delta); });
+      }
+      return e;
+    }
+    if ((m = url.match(/^\/api\/events\/(\d+)\/tasks$/))) {
+      var t = { id: db.seq++, event_id: +m[1], title: b.title, category: b.category || 'General', due_date: b.due_date || null, owner: b.owner || '', notes: b.notes || '', sort_order: 999, done: 0, done_at: null };
+      db.tasks.push(t); return t;
+    }
+    if ((m = url.match(/^\/api\/events\/(\d+)\/apply-template$/))) {
+      return { added: copyTemplate(db.events.find(function (x) { return x.id === +m[1]; }), true) };
+    }
+    if ((m = url.match(/^\/api\/tasks\/(\d+)$/))) {
+      id = +m[1];
+      if (method === 'DELETE') { db.tasks = db.tasks.filter(function (x) { return x.id !== id; }); return { ok: true }; }
+      var tk = db.tasks.find(function (x) { return x.id === id; });
+      ['title', 'category', 'owner', 'notes'].forEach(function (k) { tk[k] = pick(tk, b, k); });
+      if (b.due_date !== undefined) tk.due_date = b.due_date || null;
+      if (b.done !== undefined) { tk.done_at = b.done ? (tk.done ? tk.done_at : new Date().toISOString()) : null; tk.done = b.done ? 1 : 0; }
+      return tk;
+    }
+    if (method === 'POST' && url === '/api/template') {
+      var nt = { id: db.seq++, title: b.title, category: b.category || 'General', offset_days: parseInt(b.offset_days, 10) || 0, owner: b.owner || '', notes: '', sort_order: 999 };
+      db.template.push(nt); return nt;
+    }
+    if ((m = url.match(/^\/api\/template\/(\d+)$/))) {
+      id = +m[1];
+      if (method === 'DELETE') { db.template = db.template.filter(function (x) { return x.id !== id; }); return { ok: true }; }
+      var tt = db.template.find(function (x) { return x.id === id; });
+      ['title', 'category', 'owner', 'notes'].forEach(function (k) { tt[k] = pick(tt, b, k); });
+      if (b.offset_days !== undefined) tt.offset_days = parseInt(b.offset_days, 10) || 0;
+      return tt;
+    }
+    if (url === '/api/logout') return { ok: true };
+    throw new Error('Not available in demo');
+  }
+
+  return function (method, url, body) {
+    return new Promise(function (resolve, reject) {
+      try { var out = handle(method, url, body); save(); resolve(JSON.parse(JSON.stringify(out))); }
+      catch (e) { reject(e); }
+    });
+  };
+};
+if (!window.RACE_DEFER_BACKEND) window.RACE_DEMO_API = window.RACE_MAKE_LOCAL_API();
+
+</script>
+<script>
+// Shared-storage backend for the hosted (claude.ai artifact) version.
+// Same API surface as server.js, backed by the artifact's realtime document store,
+// so everyone the artifact is shared with sees the same events and checklist live.
+// Collections: template/{id}, events/{id}, tasks/{id}. Falls back to the
+// browser-only demo when shared storage isn't available (e.g. signed out).
+window.RACE_DEFER_BACKEND = true;
+window.RACE_BACKEND_READY = (async function () {
+  var db = null;
+  try { db = window.claude && window.claude.use ? await window.claude.use('db') : null; } catch (e) { db = null; }
+  if (!db) {
+    window.RACE_DEMO_API = window.RACE_MAKE_LOCAL_API();
+    window.RACE_BACKEND_NOTE = 'Offline demo: shared storage is unavailable here, so changes stay in this browser only.';
+    return;
+  }
+
+  var cache = { template: {}, events: {}, tasks: {} };
+  var chains = {};
+  function ymd(d) { return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0'); }
+  function addDays(s, n) { var d = new Date(s + 'T12:00:00'); d.setDate(d.getDate() + Number(n || 0)); return ymd(d); }
+  function uid(p) { return p + '-' + Date.now().toString(36) + Math.random().toString(36).slice(2, 7); }
+  function clean(o) { var r = {}; for (var k in o) if (k !== 'id' && k !== 'event_name') r[k] = o[k] === undefined ? null : o[k]; return r; }
+
+  function serial(path, fn) {
+    var p = (chains[path] || Promise.resolve()).catch(function () {}).then(fn);
+    chains[path] = p;
+    return p;
+  }
+  function writeErr(e) {
+    var code = e && e.code;
+    if (code === 'invalid_argument') throw new Error('You have view-only access to this tracker.');
+    if (code === 'quota_exceeded') throw new Error('Storage is full; delete old events to make room.');
+    throw new Error('Could not save (' + (code || 'error') + '). Please try again.');
+  }
+  // optimistic local update, then one serialized write per document
+  function put(coll, row) {
+    cache[coll][row.id] = row;
+    var body = clean(row);
+    return serial(coll + '/' + row.id, function () { return db.doc(coll + '/' + row.id).set(body); }).catch(writeErr);
+  }
+  function del(coll, id) {
+    delete cache[coll][id];
+    return serial(coll + '/' + id, function () { return db.doc(coll + '/' + id).delete(); }).catch(writeErr);
+  }
+  async function inBatches(items, n, fn) { for (var i = 0; i < items.length; i += n) await Promise.all(items.slice(i, i + n).map(fn)); }
+
+  // live subscriptions (once)
+  var changeTimer = null, firstLoads = 0, resolveFirst;
+  var firstLoad = new Promise(function (r) { resolveFirst = r; });
+  var timeout = setTimeout(function () {
+    window.RACE_BACKEND_NOTE = 'Shared data is taking a while to load; what you see may be incomplete.';
+    resolveFirst();
+  }, 10000);
+  ['template', 'events', 'tasks'].forEach(function (coll) {
+    var seen = false;
+    db.collection(coll).onSnapshot(function (snap) {
+      var next = {};
+      snap.docs.forEach(function (d) { if (d.exists) { var o = Object.assign({}, d.data()); o.id = d.id; next[d.id] = o; } });
+      cache[coll] = next;
+      if (!seen && !snap.metadata.fromCache) { seen = true; if (++firstLoads === 3) { clearTimeout(timeout); resolveFirst(); } }
+      clearTimeout(changeTimer);
+      changeTimer = setTimeout(function () { if (window.RACE_ON_REMOTE_CHANGE) window.RACE_ON_REMOTE_CHANGE(); }, 250);
+    }, function (e) {
+      window.RACE_BACKEND_NOTE = 'Live updates stopped (' + (e && e.code) + '). Reload the page to reconnect.';
+      clearTimeout(timeout); resolveFirst();
+    });
+  });
+  await firstLoad;
+
+  function vals(c) { return Object.keys(cache[c]).map(function (k) { return cache[c][k]; }); }
+  function byDue(a, b) { var x = a.due_date || '9999', y = b.due_date || '9999'; return x < y ? -1 : x > y ? 1 : (a.sort_order || 0) - (b.sort_order || 0); }
+  function sortedTemplate() { return vals('template').sort(function (a, b) { return a.offset_days - b.offset_days || (a.sort_order || 0) - (b.sort_order || 0); }); }
+  function pick(o, b, k) { return b[k] !== undefined ? b[k] : o[k]; }
+  async function copyTemplate(ev, onlyMissing) {
+    var have = new Set(vals('tasks').filter(function (t) { return t.event_id === ev.id; }).map(function (t) { return String(t.title).toLowerCase(); }));
+    var rows = sortedTemplate().filter(function (t) { return !onlyMissing || !have.has(String(t.title).toLowerCase()); }).map(function (t, i) {
+      return { id: uid('t'), event_id: ev.id, title: t.title, category: t.category, due_date: addDays(ev.event_date, t.offset_days), owner: t.owner || '', notes: t.notes || '', sort_order: i, done: 0, done_at: null };
+    });
+    await inBatches(rows, 8, function (r) { return put('tasks', r); });
+    return rows.length;
+  }
+
+  async function handle(method, url, b) {
+    b = b || {};
+    var m;
+    if (url === '/api/me') return { authed: true, passwordRequired: false, title: 'USF Pro Championships · Event Readiness' };
+    if (url === '/api/logout') return { ok: true };
+    if (url === '/api/state') {
+      var evs = vals('events');
+      var names = {}; evs.forEach(function (e) { names[e.id] = e; });
+      return {
+        events: evs.sort(function (a, c) { return (a.archived || 0) - (c.archived || 0) || (a.event_date < c.event_date ? -1 : 1); }),
+        tasks: vals('tasks').filter(function (t) { return names[t.event_id]; }).sort(byDue).map(function (t) { return Object.assign({}, t, { event_name: names[t.event_id].name, event_date: names[t.event_id].event_date }); }),
+        template: sortedTemplate(),
+      };
+    }
+    if (method === 'POST' && url === '/api/events') {
+      if (!b.name || !b.event_date) throw new Error('Name and event date are required');
+      var ev = { id: uid('e'), name: String(b.name).slice(0, 200), event_date: b.event_date, location: b.location || '', notes: b.notes || '', archived: 0, created_at: new Date().toISOString() };
+      await put('events', ev);
+      if (b.apply_template !== false) await copyTemplate(ev, false);
+      return ev;
+    }
+    if ((m = url.match(/^\/api\/events\/([\w-]+)\/tasks$/))) {
+      var t = { id: uid('t'), event_id: m[1], title: String(b.title || '').slice(0, 300), category: b.category || 'General', due_date: b.due_date || null, owner: b.owner || '', notes: b.notes || '', sort_order: 999, done: 0, done_at: null };
+      if (!t.title) throw new Error('Title is required');
+      await put('tasks', t); return t;
+    }
+    if ((m = url.match(/^\/api\/events\/([\w-]+)\/apply-template$/))) {
+      return { added: await copyTemplate(cache.events[m[1]], true) };
+    }
+    if ((m = url.match(/^\/api\/events\/([\w-]+)$/))) {
+      var id = m[1], e = cache.events[id];
+      if (method === 'DELETE') {
+        var mine = vals('tasks').filter(function (x) { return x.event_id === id; });
+        await del('events', id);
+        await inBatches(mine, 8, function (x) { return del('tasks', x.id); });
+        return { ok: true };
+      }
+      var n = Object.assign({}, e), old = e.event_date;
+      ['name', 'location', 'notes'].forEach(function (k) { n[k] = pick(e, b, k); });
+      if (b.event_date) n.event_date = b.event_date;
+      if (b.archived !== undefined) n.archived = b.archived ? 1 : 0;
+      await put('events', n);
+      if (b.shift_tasks && old !== n.event_date) {
+        var delta = Math.round((Date.parse(n.event_date) - Date.parse(old)) / 864e5);
+        var open = vals('tasks').filter(function (x) { return x.event_id === id && !x.done && x.due_date; });
+        await inBatches(open, 8, function (x) { return put('tasks', Object.assign({}, x, { due_date: addDays(x.due_date, delta) })); });
+      }
+      return n;
+    }
+    if ((m = url.match(/^\/api\/tasks\/([\w-]+)$/))) {
+      var tk = cache.tasks[m[1]];
+      if (method === 'DELETE') { await del('tasks', m[1]); return { ok: true }; }
+      var nt = Object.assign({}, tk);
+      ['title', 'category', 'owner', 'notes'].forEach(function (k) { nt[k] = pick(tk, b, k); });
+      if (b.due_date !== undefined) nt.due_date = b.due_date || null;
+      if (b.done !== undefined) { nt.done_at = b.done ? (tk.done ? tk.done_at : new Date().toISOString()) : null; nt.done = b.done ? 1 : 0; }
+      await put('tasks', nt); return nt;
+    }
+    if (method === 'POST' && url === '/api/template') {
+      var tt = { id: uid('s'), title: String(b.title || '').slice(0, 300), category: b.category || 'General', offset_days: parseInt(b.offset_days, 10) || 0, owner: b.owner || '', notes: '', sort_order: 999 };
+      if (!tt.title) throw new Error('Title is required');
+      await put('template', tt); return tt;
+    }
+    if ((m = url.match(/^\/api\/template\/([\w-]+)$/))) {
+      if (method === 'DELETE') { await del('template', m[1]); return { ok: true }; }
+      var o = cache.template[m[1]], nn = Object.assign({}, o);
+      ['title', 'category', 'owner', 'notes'].forEach(function (k) { nn[k] = pick(o, b, k); });
+      if (b.offset_days !== undefined) nn.offset_days = parseInt(b.offset_days, 10) || 0;
+      await put('template', nn); return nn;
+    }
+    throw new Error('Not supported');
+  }
+
+  window.RACE_DEMO_API = function (method, url, body) {
+    return handle(method, url, body).then(function (out) { return JSON.parse(JSON.stringify(out)); });
+  };
+})();
+
+</script>
+<script>
+"use strict";
+var S = { view: "dashboard", eventId: null, data: null, filter: "open", catFilter: "", ownerFilter: "" };
+var app = document.getElementById("app");
+
+// ---------- utils
+function h(tag, attrs, kids){
+  var el = document.createElement(tag);
+  for (var k in (attrs||{})) {
+    var v = attrs[k];
+    if (v == null || v === false) continue;
+    if (k === "class") el.className = v;
+    else if (k.slice(0,2) === "on") el.addEventListener(k.slice(2), v);
+    else if (k === "html") el.innerHTML = v;
+    else el.setAttribute(k, v === true ? "" : v);
+  }
+  [].concat(kids == null ? [] : kids).forEach(function(c){
+    if (c == null || c === false) return;
+    el.appendChild(typeof c === "object" ? c : document.createTextNode(String(c)));
+  });
+  return el;
+}
+function api(method, url, body){
+  if (window.RACE_DEMO_API) return window.RACE_DEMO_API(method, url, body);
+  return fetch(url, { method: method, headers: body ? {"Content-Type":"application/json"} : {}, body: body ? JSON.stringify(body) : undefined, credentials: "same-origin" })
+    .then(function(r){ return r.json().then(function(j){ if(!r.ok){ if(r.status===401){ renderLogin(); } throw new Error(j.error||r.statusText);} return j; }); });
+}
+function toast(msg){ var t=document.getElementById("toast"); t.textContent=msg; t.style.display="block"; clearTimeout(toast._t); toast._t=setTimeout(function(){t.style.display="none";},2400); }
+function today(){ var d=new Date(); return d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0")+"-"+String(d.getDate()).padStart(2,"0"); }
+function daysBetween(a,b){ return Math.round((Date.parse(b+"T00:00:00Z")-Date.parse(a+"T00:00:00Z"))/864e5); }
+function fmtDate(ymd){ if(!ymd) return "No date"; var d=new Date(ymd+"T12:00:00"); return d.toLocaleDateString(undefined,{month:"short",day:"numeric",year: d.getFullYear()===new Date().getFullYear()?undefined:"numeric"}); }
+function relDays(n){ if(n===0) return "today"; if(n===1) return "tomorrow"; if(n===-1) return "yesterday"; return n>0 ? "in "+n+" days" : Math.abs(n)+" days ago"; }
+function taskState(t){
+  if (t.done) return "done";
+  if (!t.due_date) return "open";
+  var n = daysBetween(today(), t.due_date);
+  if (n < 0) return "overdue";
+  if (n <= 7) return "soon";
+  return "open";
+}
+function statusChip(t){
+  var st = taskState(t);
+  if (st==="overdue") return h("span",{class:"status overdue"},[h("span",{class:"ico","aria-hidden":"true"},"!"),"Overdue "+Math.abs(daysBetween(today(),t.due_date))+"d"]);
+  if (st==="soon") return h("span",{class:"status soon"},[h("span",{class:"ico","aria-hidden":"true"},"•"),"Due "+relDays(daysBetween(today(),t.due_date))]);
+  if (st==="done") return h("span",{class:"status done"},[h("span",{class:"ico","aria-hidden":"true"},"✓"),"Done"]);
+  return null;
+}
+function eventStats(evId){
+  var ts = S.data.tasks.filter(function(t){ return t.event_id===evId; });
+  var done = ts.filter(function(t){return t.done;}).length;
+  return { total: ts.length, done: done, overdue: ts.filter(function(t){return taskState(t)==="overdue";}).length,
+           soon: ts.filter(function(t){return taskState(t)==="soon";}).length, pct: ts.length ? Math.round(done*100/ts.length) : 0 };
+}
+function activeEvents(){ return S.data.events.filter(function(e){ return !e.archived; }); }
+
+// ---------- data
+function load(){ return api("GET","/api/state").then(function(d){ S.data=d; render(); }); }
+function toggleTask(t, done){
+  return api("PATCH","/api/tasks/"+t.id,{done:done}).then(function(nt){
+    var i=S.data.tasks.findIndex(function(x){return x.id===t.id;}); Object.assign(S.data.tasks[i], nt); render();
+  }).catch(function(e){ toast(e.message); });
+}
+
+// ---------- shell
+function render(){
+  app.innerHTML = "";
+  var tabs = [["dashboard","Dashboard"],["events","Events"],["template","Standard checklist"]];
+  app.appendChild(h("header",{},[
+    h("h1",{},"🏁 "+(S.title||"Race Event To-Do")),
+    h("nav",{}, tabs.map(function(t){ return h("button",{class: (S.view===t[0] || (S.view==="event"&&t[0]==="events")) ? "active":"", onclick:function(){ S.view=t[0]; S.eventId=null; location.hash=t[0]; render(); window.scrollTo(0,0); }}, t[1]); })),
+    h("button",{class:"btn",onclick:openNewEvent},"+ New event"),
+    S.passwordRequired ? h("button",{class:"btn ghost",onclick:function(){ api("POST","/api/logout").then(renderLogin); }},"Sign out") : null
+  ]));
+  if (window.RACE_BACKEND_NOTE) app.appendChild(h("div",{class:"card",style:"padding:10px 14px;font-size:.85rem;color:var(--fg-2)"},"ℹ️ "+window.RACE_BACKEND_NOTE));
+  var main = h("main");
+  app.appendChild(main);
+  if (S.view==="dashboard") renderDashboard(main);
+  else if (S.view==="events") renderEvents(main);
+  else if (S.view==="event") renderEvent(main);
+  else if (S.view==="template") renderTemplate(main);
+}
+
+// ---------- dashboard
+function renderDashboard(root){
+  var evs = activeEvents();
+  var evIds = new Set(evs.map(function(e){return e.id;}));
+  var tasks = S.data.tasks.filter(function(t){ return evIds.has(t.event_id); });
+  var done = tasks.filter(function(t){return t.done;}).length;
+  var overdue = tasks.filter(function(t){return taskState(t)==="overdue";});
+  var soon = tasks.filter(function(t){return taskState(t)==="soon";});
+  var upcoming = evs.filter(function(e){ return daysBetween(today(),e.event_date)>=0; }).sort(function(a,b){return a.event_date<b.event_date?-1:1;});
+  var next = upcoming[0];
+
+  root.appendChild(h("div",{class:"grid tiles"},[
+    tile("Active events", evs.length, upcoming.length+" upcoming"),
+    tile("Next race", next ? relDays(daysBetween(today(),next.event_date)).replace(/^in /,"") : "—", next ? next.name+" · "+fmtDate(next.event_date) : "No upcoming events"),
+    tile("Complete", tasks.length ? Math.round(done*100/tasks.length)+"%" : "—", done+" of "+tasks.length+" tasks"),
+    tile("Overdue", overdue.length, overdue.length ? "needs attention" : "all caught up"),
+    tile("Due in 7 days", soon.length, "across "+new Set(soon.map(function(t){return t.event_id;})).size+" events")
+  ]));
+
+  if (!evs.length){
+    root.appendChild(h("div",{class:"card"},[h("h2",{},"Welcome!"),h("p",{class:"muted"},"Create your first race event — it will automatically get the standard checklist with due dates counted back from race day. You can edit that standard list under “Standard checklist”."),h("button",{class:"btn",onclick:openNewEvent},"+ New event")]));
+    return;
+  }
+
+  if (next) root.appendChild(areaCard(next));
+
+  // open tasks due per week
+  root.appendChild(h("div",{class:"card"},[
+    h("h2",{},"Open tasks by due week"),
+    h("div",{class:"muted",style:"margin:-6px 0 8px"},"Next 12 weeks, all active events"),
+    dueChart(tasks)
+  ]));
+
+  var attention = overdue.concat(soon).sort(function(a,b){ return (a.due_date||"9")<(b.due_date||"9")?-1:1; });
+  root.appendChild(h("div",{class:"grid two"},[
+    h("div",{class:"card"},[h("h2",{},"Needs attention"),
+      attention.length ? h("div",{}, attention.slice(0,25).map(function(t){ return taskRow(t,true); })) : h("div",{class:"empty"},"Nothing overdue or due this week. 🎉"),
+      attention.length>25 ? h("div",{class:"muted"},"+"+(attention.length-25)+" more") : null]),
+    h("div",{class:"card"},[h("h2",{},"Event progress"), h("div",{}, evs.slice().sort(function(a,b){return a.event_date<b.event_date?-1:1;}).map(eventRow))])
+  ]));
+}
+function areaCard(ev){
+  var ts = S.data.tasks.filter(function(t){ return t.event_id===ev.id; });
+  var cats = Array.from(new Set(ts.map(function(t){return t.category;})));
+  return h("div",{class:"card"},[
+    h("div",{style:"display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap;align-items:baseline"},[
+      h("h2",{},"Next race readiness by area"),
+      h("a",{href:"#",onclick:function(e){e.preventDefault(); openEvent(ev.id);}}, ev.name+(ev.location?" · "+ev.location:"")+" · "+fmtDate(ev.event_date))]),
+    h("div",{class:"grid",style:"grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:18px;margin-top:6px"}, cats.map(function(c){
+      var ct = ts.filter(function(t){return t.category===c;}), d = ct.filter(function(t){return t.done;}).length, pct = Math.round(d*100/ct.length);
+      var od = ct.filter(function(t){return taskState(t)==="overdue";}).length;
+      return h("div",{style:"cursor:pointer",onclick:function(){ S.catFilter=c; S.filter="all"; openEvent(ev.id); }},[
+        h("div",{style:"font-weight:600;font-size:.9rem;margin-bottom:6px"},c),
+        h("div",{class:"meter"+(pct===100?" complete":"")},h("span",{style:"width:"+pct+"%"})),
+        h("div",{class:"meter-label"},[h("span",{},d+" / "+ct.length+" done"), od ? h("span",{class:"status overdue"},[h("span",{class:"ico","aria-hidden":"true"},"!"),od+" overdue"]) : h("span",{},pct+"%")])
+      ]);
+    }))
+  ]);
+}
+function tile(label, value, sub){ return h("div",{class:"tile"},[h("div",{class:"label"},label),h("div",{class:"value"},String(value)),h("div",{class:"sub"},sub)]); }
+
+function dueChart(tasks){
+  var t0 = today(), weeks = 12;
+  var open = tasks.filter(function(t){ return !t.done && t.due_date; });
+  var buckets = [{label:"Overdue", n:0, overdue:true}];
+  var start = new Date(t0+"T12:00:00"); start.setDate(start.getDate()-((start.getDay()+6)%7)); // Monday of this week
+  for (var i=0;i<weeks;i++){ var d=new Date(start); d.setDate(d.getDate()+i*7); buckets.push({ start:d, label: d.toLocaleDateString(undefined,{month:"short",day:"numeric"}), n:0 }); }
+  open.forEach(function(t){
+    if (t.due_date < t0) { buckets[0].n++; return; }
+    var mon = buckets[1].start; var ms = mon.getFullYear()+"-"+String(mon.getMonth()+1).padStart(2,"0")+"-"+String(mon.getDate()).padStart(2,"0");
+    var idx = Math.floor(daysBetween(ms, t.due_date)/7);
+    if (idx>=0 && idx<weeks) buckets[idx+1].n++;
+  });
+  var W=720, H=200, padL=28, padB=26, padT=10, n=buckets.length, gap=2;
+  var max = Math.max(4, Math.max.apply(null, buckets.map(function(b){return b.n;})));
+  var step = Math.ceil(max/4); max = step*4;
+  var bw = (W-padL)/n;
+  var ns="http://www.w3.org/2000/svg";
+  function s(tag, a){ var el=document.createElementNS(ns,tag); for (var k in a) el.setAttribute(k,a[k]); return el; }
+  var svg = s("svg",{viewBox:"0 0 "+W+" "+H, role:"img","aria-label":"Open tasks by due week"});
+  for (var g=0; g<=4; g++){
+    var y = padT + (H-padT-padB)*(1-g/4);
+    svg.appendChild(s("line",{x1:padL,x2:W,y1:y,y2:y,stroke: g===0 ? "var(--axis)" : "var(--grid)","stroke-width":1}));
+    var tl=s("text",{x:padL-6,y:y+4,"text-anchor":"end","font-size":11,fill:"var(--muted)"}); tl.textContent=g*step; svg.appendChild(tl);
+  }
+  var wrap = h("div",{class:"chart"}); var tip = h("div",{class:"tip"});
+  buckets.forEach(function(b,i){
+    var x = padL + i*bw + gap, w = Math.max(4, bw - gap*2 - 8), bh = (H-padT-padB)*(b.n/max), y = H-padB-bh;
+    var bx = x + (bw-gap*2-w)/2;
+    if (b.n>0){
+      var r = Math.min(4, bh);
+      var p = "M"+bx+","+(H-padB)+" V"+(y+r)+" Q"+bx+","+y+" "+(bx+r)+","+y+" H"+(bx+w-r)+" Q"+(bx+w)+","+y+" "+(bx+w)+","+(y+r)+" V"+(H-padB)+" Z";
+      svg.appendChild(s("path",{d:p, fill: b.overdue ? "var(--critical)" : "var(--accent)"}));
+    }
+    var lab = s("text",{x:bx+w/2,y:H-8,"text-anchor":"middle","font-size":11,fill: b.overdue ? "var(--critical)" : "var(--muted)","font-weight": b.overdue?600:400}); lab.textContent = b.overdue ? "⚠ Overdue" : (i%2===0 ? b.label : ""); svg.appendChild(lab);
+    var hit = s("rect",{x:padL+i*bw,y:padT,width:bw,height:H-padT-padB,fill:"transparent",style:"cursor:default"});
+    hit.addEventListener("mouseenter",function(){ tip.style.display="block"; tip.textContent=(b.overdue?"Overdue":"Week of "+b.label)+": "+b.n+" open task"+(b.n===1?"":"s"); tip.style.left=((bx+w/2)/W*100)+"%"; tip.style.top=(y/H*100)+"%"; });
+    hit.addEventListener("mouseleave",function(){ tip.style.display="none"; });
+    svg.appendChild(hit);
+  });
+  wrap.appendChild(svg); wrap.appendChild(tip);
+  // accessible table view
+  var tbl = h("table",{class:"sr"},[h("tr",{},[h("th",{},"Week"),h("th",{},"Open tasks")])].concat(buckets.map(function(b){ return h("tr",{},[h("td",{},b.overdue?"Overdue":"Week of "+b.label),h("td",{},String(b.n))]); })));
+  wrap.appendChild(tbl);
+  return wrap;
+}
+
+function eventRow(ev){
+  var st = eventStats(ev.id), dd = daysBetween(today(), ev.event_date);
+  return h("div",{class:"event-row",onclick:function(){ openEvent(ev.id); }},[
+    h("div",{},[h("div",{class:"ev-name"},ev.name),
+      h("div",{class:"muted"},[fmtDate(ev.event_date)+" · "+(dd>=0 ? relDays(dd) : "past"), ev.location ? " · "+ev.location : ""]),
+      st.overdue ? h("span",{class:"status overdue"},[h("span",{class:"ico","aria-hidden":"true"},"!"), st.overdue+" overdue"]) : null]),
+    h("div",{},[h("div",{class:"meter"+(st.pct===100?" complete":""),role:"progressbar","aria-valuenow":st.pct,"aria-valuemin":0,"aria-valuemax":100},h("span",{style:"width:"+st.pct+"%"})),
+      h("div",{class:"meter-label"},[h("span",{},st.done+" / "+st.total+" done"),h("span",{},st.pct+"%")])])
+  ]);
+}
+
+function taskRow(t, showEvent){
+  var cb = h("input",{type:"checkbox","aria-label":"Mark "+t.title+" done"}); cb.checked = !!t.done;
+  cb.addEventListener("change", function(){ toggleTask(t, cb.checked); });
+  return h("div",{class:"task"+(t.done?" is-done":"")},[cb,
+    h("div",{class:"body"},[
+      h("div",{class:"title"},t.title),
+      h("div",{class:"meta"},[
+        showEvent ? h("a",{href:"#",onclick:function(e){e.preventDefault(); openEvent(t.event_id);}}, t.event_name) : h("span",{class:"pill"},t.category),
+        h("span",{},fmtDate(t.due_date)), statusChip(t), t.owner ? h("span",{},"👤 "+t.owner) : null,
+        t.notes ? h("span",{title:t.notes},"📝 note") : null
+      ])
+    ]),
+    showEvent ? null : h("button",{class:"btn ghost",title:"Edit",onclick:function(){ openTaskEditor(t); }},"Edit")
+  ]);
+}
+
+// ---------- events list
+function renderEvents(root){
+  var evs = S.data.events.slice();
+  var active = evs.filter(function(e){return !e.archived;}), archived = evs.filter(function(e){return e.archived;});
+  root.appendChild(h("div",{class:"card"},[h("h2",{},"Active events"), active.length ? h("div",{},active.map(eventRow)) : h("div",{class:"empty"},"No active events yet.")]));
+  if (archived.length) root.appendChild(h("div",{class:"card"},[h("h2",{},"Archived"), h("div",{},archived.map(eventRow))]));
+}
+
+// ---------- single event
+function openEvent(id){ if (S.eventId!==id && S.view!=="dashboard"){ S.catFilter=""; S.ownerFilter=""; S.filter="open"; } S.view="event"; S.eventId=id; location.hash="event-"+id; render(); window.scrollTo(0,0); }
+function renderEvent(root){
+  var ev = S.data.events.find(function(e){return e.id===S.eventId;});
+  if (!ev){ S.view="events"; return renderEvents(root); }
+  var st = eventStats(ev.id), dd = daysBetween(today(), ev.event_date);
+  var tasks = S.data.tasks.filter(function(t){return t.event_id===ev.id;});
+  var cats = Array.from(new Set(tasks.map(function(t){return t.category;}))).sort();
+
+  root.appendChild(h("div",{class:"card"},[
+    h("div",{style:"display:flex;gap:12px;align-items:flex-start;flex-wrap:wrap"},[
+      h("div",{style:"flex:1;min-width:220px"},[
+        h("div",{style:"font-size:1.25rem;font-weight:600"},ev.name),
+        h("div",{class:"muted"},fmtDate(ev.event_date)+" · "+(dd>=0?relDays(dd):"past")+(ev.location?" · "+ev.location:"")+(ev.archived?" · Archived":"")),
+        ev.notes ? h("p",{style:"margin:8px 0 0;white-space:pre-wrap;font-size:.9rem"},ev.notes) : null
+      ]),
+      h("div",{style:"display:flex;gap:6px;flex-wrap:wrap"},[
+        h("button",{class:"btn secondary",onclick:function(){openEditEvent(ev);}},"Edit event"),
+        h("button",{class:"btn secondary",onclick:function(){ api("POST","/api/events/"+ev.id+"/apply-template").then(function(r){ toast(r.added ? r.added+" standard task(s) added" : "Already has every standard task"); load(); }); }},"Sync standard list"),
+        h("button",{class:"btn secondary",onclick:function(){ api("PATCH","/api/events/"+ev.id,{archived:!ev.archived}).then(load); }}, ev.archived?"Unarchive":"Archive")
+      ])
+    ]),
+    h("div",{style:"margin-top:14px"},[h("div",{class:"meter"+(st.pct===100?" complete":"")},h("span",{style:"width:"+st.pct+"%"})),
+      h("div",{class:"meter-label"},[h("span",{},st.done+" of "+st.total+" done"+(st.overdue?" · "+st.overdue+" overdue":"")+(st.soon?" · "+st.soon+" due this week":"")),h("span",{},st.pct+"%")])])
+  ]));
+
+  // add task
+  var f = { title:h("input",{placeholder:"New task…"}), due:h("input",{type:"date"}), cat:h("input",{placeholder:"Category",list:"cats"}), owner:h("input",{placeholder:"Owner"}) };
+  root.appendChild(h("div",{class:"card"},[
+    h("datalist",{id:"cats"}, cats.map(function(c){return h("option",{value:c});})),
+    h("form",{class:"form-row",onsubmit:function(e){ e.preventDefault(); if(!f.title.value.trim()) return;
+        api("POST","/api/events/"+ev.id+"/tasks",{title:f.title.value,due_date:f.due.value,category:f.cat.value,owner:f.owner.value}).then(function(){ toast("Task added"); load(); }).catch(function(e){toast(e.message);}); }},[
+      h("div",{},[h("label",{},"Task"),f.title]), h("div",{},[h("label",{},"Due"),f.due]), h("div",{},[h("label",{},"Category"),f.cat]), h("div",{},[h("label",{},"Owner"),f.owner]),
+      h("button",{class:"btn",type:"submit"},"Add")])
+  ]));
+
+  // filters
+  var sel = h("select",{onchange:function(){ S.filter=sel.value; render(); }},[["open","Open tasks"],["overdue","Overdue"],["soon","Due in 7 days"],["done","Completed"],["all","All tasks"]].map(function(o){ return h("option",{value:o[0],selected:S.filter===o[0]},o[1]); }));
+  var owners = Array.from(new Set(tasks.map(function(t){return t.owner;}).filter(Boolean))).sort();
+  var osel = h("select",{onchange:function(){ S.ownerFilter=osel.value; render(); }},[h("option",{value:""},"All owners")].concat(owners.map(function(o){return h("option",{value:o,selected:S.ownerFilter===o},o);})));
+  var csel = h("select",{onchange:function(){ S.catFilter=csel.value; render(); }},[h("option",{value:""},"All categories")].concat(cats.map(function(c){return h("option",{value:c,selected:S.catFilter===c},c);})));
+  var shown = tasks.filter(function(t){
+    var s = taskState(t);
+    if (S.catFilter && t.category!==S.catFilter) return false;
+    if (S.ownerFilter && t.owner!==S.ownerFilter) return false;
+    if (S.filter==="open") return !t.done; if (S.filter==="done") return t.done;
+    if (S.filter==="overdue") return s==="overdue"; if (S.filter==="soon") return s==="soon"; return true;
+  });
+  var list = h("div",{});
+  if (!shown.length) list.appendChild(h("div",{class:"empty"},"No tasks match this filter."));
+  shown.forEach(function(t){ list.appendChild(taskRow(t,false)); });
+  root.appendChild(h("div",{class:"card"},[h("div",{class:"toolbar"},[h("h2",{style:"margin:0;margin-right:auto"},"Tasks"),sel,csel,osel]), list]));
+}
+
+// ---------- template
+function renderTemplate(root){
+  var rows = S.data.template;
+  var tbody = h("tbody");
+  rows.forEach(function(t){
+    function inp(field, attrs){ var i=h("input",Object.assign({value:t[field]},attrs||{})); i.addEventListener("change",function(){ var b={}; b[field]=i.value; api("PATCH","/api/template/"+t.id,b).then(function(n){ Object.assign(t,n); toast("Saved"); }); }); return i; }
+    tbody.appendChild(h("tr",{},[
+      h("td",{},inp("title")), h("td",{style:"width:150px"},inp("category")),
+      h("td",{style:"width:110px"},inp("offset_days",{type:"number"})),
+      h("td",{style:"width:130px"},inp("owner")),
+      h("td",{style:"width:40px"},h("button",{class:"btn ghost",title:"Remove",onclick:function(){ askConfirm("Remove “"+t.title+"” from the standard checklist? Existing events keep their copy.","Remove").then(function(ok){ if(ok) api("DELETE","/api/template/"+t.id).then(load).catch(function(e){toast(e.message);}); }); }},"✕"))
+    ]));
+  });
+  var f = { title:h("input",{placeholder:"New standard task…"}), cat:h("input",{placeholder:"Category"}), off:h("input",{type:"number",placeholder:"-30"}), own:h("input",{placeholder:"Owner"}) };
+  root.appendChild(h("div",{class:"card"},[
+    h("h2",{},"Standard checklist"),
+    h("p",{class:"muted",style:"margin-top:-4px"},"Every new event starts with these tasks. “Days from race” sets the due date: −30 means 30 days before race day, 7 means a week after. Changes here apply to new events; use “Sync standard list” on an event to pull in newly added tasks."),
+    h("table",{class:"tmpl"},[h("thead",{},h("tr",{},[h("th",{},"Task"),h("th",{},"Category"),h("th",{},"Days from race"),h("th",{},"Default owner"),h("th",{})])), tbody]),
+    h("form",{class:"form-row",style:"grid-template-columns:2fr 1fr 110px 130px auto;margin-top:12px",onsubmit:function(e){ e.preventDefault(); if(!f.title.value.trim())return;
+      api("POST","/api/template",{title:f.title.value,category:f.cat.value,offset_days:f.off.value,owner:f.own.value}).then(function(){ toast("Added"); load(); }); }},
+      [h("div",{},f.title),h("div",{},f.cat),h("div",{},f.off),h("div",{},f.own),h("button",{class:"btn",type:"submit"},"Add")])
+  ]));
+}
+
+// ---------- dialogs
+var dlg = document.getElementById("dlg");
+function askConfirm(msg, okLabel){
+  return new Promise(function(resolve){
+    var d = document.getElementById("dlg2"); d.innerHTML = "";
+    function done(v){ d.close(); resolve(v); }
+    d.appendChild(h("div",{},[h("p",{style:"margin:0 0 6px"},msg),
+      h("div",{class:"actions"},[h("button",{class:"btn secondary",type:"button",onclick:function(){done(false);}},"Cancel"),
+        h("button",{class:"btn danger",type:"button",onclick:function(){done(true);}},okLabel||"Delete")])]));
+    d.onclose = function(){ resolve(false); };
+    d.showModal();
+  });
+}
+function modal(title, fields, onSave, extra){
+  dlg.innerHTML = "";
+  var form = h("form",{method:"dialog",onsubmit:function(e){ e.preventDefault(); Promise.resolve(onSave()).then(function(ok){ if(ok!==false) dlg.close(); }).catch(function(err){ toast(err.message); }); }},
+    [h("h2",{},title)].concat(fields.map(function(f){ return h("div",{class:"field"},[h("label",{},f[0]),f[1]]); }))
+      .concat([h("div",{class:"actions"},[extra||null, h("span",{style:"flex:1"}), h("button",{class:"btn secondary",type:"button",onclick:function(){dlg.close();}},"Cancel"), h("button",{class:"btn",type:"submit"},"Save")])]));
+  dlg.appendChild(form); dlg.showModal();
+}
+function openNewEvent(){
+  var name=h("input",{required:true,placeholder:"e.g. Spring Criterium"}), date=h("input",{type:"date",required:true}), loc=h("input",{placeholder:"City, venue"}), notes=h("textarea",{rows:3});
+  var useT=h("input",{type:"checkbox"}); useT.checked=true;
+  modal("New race event",[["Event name",name],["Race date",date],["Location",loc],["Notes",notes],["Start from the standard checklist ("+S.data.template.length+" tasks)",useT]], function(){
+    return api("POST","/api/events",{name:name.value,event_date:date.value,location:loc.value,notes:notes.value,apply_template:useT.checked}).then(function(ev){ toast("Event created"); return load().then(function(){ openEvent(ev.id); }); });
+  });
+}
+function openEditEvent(ev){
+  var name=h("input",{value:ev.name}), date=h("input",{type:"date",value:ev.event_date}), loc=h("input",{value:ev.location}), notes=h("textarea",{rows:3}); notes.value=ev.notes;
+  var shift=h("input",{type:"checkbox"}); shift.checked=true;
+  modal("Edit event",[["Event name",name],["Race date",date],["If the date changes, move open task due dates with it",shift],["Location",loc],["Notes",notes]], function(){
+    return api("PATCH","/api/events/"+ev.id,{name:name.value,event_date:date.value,location:loc.value,notes:notes.value,shift_tasks:shift.checked}).then(function(){ toast("Saved"); return load(); });
+  }, h("button",{class:"btn danger",type:"button",onclick:function(){ askConfirm("Delete “"+ev.name+"” and all its tasks? This cannot be undone.").then(function(ok){ if(ok) api("DELETE","/api/events/"+ev.id).then(function(){ dlg.close(); S.view="events"; location.hash="events"; load(); }).catch(function(e){toast(e.message);}); }); }},"Delete"));
+}
+function openTaskEditor(t){
+  var title=h("input",{value:t.title}), due=h("input",{type:"date",value:t.due_date||""}), cat=h("input",{value:t.category}), owner=h("input",{value:t.owner}), notes=h("textarea",{rows:3}); notes.value=t.notes;
+  modal("Edit task",[["Task",title],["Due date",due],["Category",cat],["Owner",owner],["Notes",notes]], function(){
+    return api("PATCH","/api/tasks/"+t.id,{title:title.value,due_date:due.value,category:cat.value,owner:owner.value,notes:notes.value}).then(function(){ toast("Saved"); return load(); });
+  }, h("button",{class:"btn danger",type:"button",onclick:function(){ askConfirm("Delete this task?").then(function(ok){ if(ok) api("DELETE","/api/tasks/"+t.id).then(function(){ dlg.close(); load(); }).catch(function(e){toast(e.message);}); }); }},"Delete"));
+}
+
+// ---------- login
+function renderLogin(){
+  app.innerHTML="";
+  var pw=h("input",{type:"password",placeholder:"Password",autofocus:true});
+  app.appendChild(h("div",{class:"card login"},[h("div",{style:"font-size:2rem"},"🏁"),h("h2",{},S.title||"Race Event To-Do"),
+    h("form",{onsubmit:function(e){ e.preventDefault(); api("POST","/api/login",{password:pw.value}).then(boot).catch(function(err){ toast(err.message); }); }},
+      [pw, h("button",{class:"btn",type:"submit",style:"width:100%;justify-content:center;margin-top:10px"},"Sign in")])]));
+}
+
+function boot(){
+  api("GET","/api/me").then(function(me){
+    S.passwordRequired = me.passwordRequired; S.title = me.title; document.title = me.title || document.title;
+    if (!me.authed) return renderLogin();
+    var m = location.hash.match(/^#event[-\/]([\w-]+)$/);
+    if (m){ S.view="event"; S.eventId = /^\d+$/.test(m[1]) ? Number(m[1]) : m[1]; }
+    else if (/^#(events|template)$/.test(location.hash)) S.view=location.hash.slice(1);
+    return load();
+  });
+}
+window.RACE_ON_REMOTE_CHANGE = function(){
+  if (!S.data) return;
+  var a = document.activeElement;
+  if (document.querySelector("dialog[open]") || (a && /^(INPUT|TEXTAREA|SELECT)$/.test(a.tagName) && app.contains(a))) return;
+  var y = window.scrollY; load().then(function(){ window.scrollTo(0,y); });
+};
+if (window.RACE_BACKEND_READY){ app.appendChild(h("div",{class:"empty",style:"padding:40px 0;text-align:center"},"Loading…")); window.RACE_BACKEND_READY.then(boot, boot); }
+else boot();
+</script>
+</body>
+</html>

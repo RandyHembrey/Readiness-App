@@ -1,6 +1,6 @@
 // In-browser stand-in for server.js so the UI can be demoed as a single static page.
 // Data lives in localStorage; "Reset demo" in the footer restores the mock season.
-(function () {
+window.RACE_MAKE_LOCAL_API = function () {
   var KEY = 'race-todo-demo-v1';
   var SEED = window.RACE_SEED;
   function ymd(d) { return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0'); }
@@ -103,10 +103,11 @@
     throw new Error('Not available in demo');
   }
 
-  window.RACE_DEMO_API = function (method, url, body) {
+  return function (method, url, body) {
     return new Promise(function (resolve, reject) {
       try { var out = handle(method, url, body); save(); resolve(JSON.parse(JSON.stringify(out))); }
       catch (e) { reject(e); }
     });
   };
-})();
+};
+if (!window.RACE_DEFER_BACKEND) window.RACE_DEMO_API = window.RACE_MAKE_LOCAL_API();

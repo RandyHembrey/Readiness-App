@@ -20,6 +20,15 @@ Internet ─► GoDaddy DNS ─► router: WAN 80/443 only ─► NAS :8080/:844
 | `caddy/Caddyfile` | The only public entry point: hostnames to apps, plus automatic Let's Encrypt |
 | `docker-compose.yml` | The whole stack |
 
+## Cloud mock-up (before the NAS is ready)
+
+There's a hosted copy for developing the app with Susanne. It's a private claude.ai artifact page,
+shared from its page on claude.ai, and anyone it's shared with as Contributor or Editor edits the
+same live data. Rebuild it with `node race-todo/demo/build-artifact.js`. That inlines `seed.js`,
+`demo/demo-api.js` (an offline fallback) and `demo/db-api.js` (shared storage) into one page. The
+UI is the same `public/index.html` the NAS serves, so moving to the NAS means deploying the stack
+below and re-entering (or exporting) the data.
+
 ## How it's walled off
 
 | Layer | Protection |

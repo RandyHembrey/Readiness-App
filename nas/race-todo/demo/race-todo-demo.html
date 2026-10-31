@@ -90,6 +90,7 @@
 
 <div id="toast"></div>
 <dialog id="dlg"></dialog>
+<dialog id="dlg2"></dialog>
 <script>
 // Standard checklist + demo data for the USF Pro Championships business-manager portal.
 // Shared by server.js (Node) and the static demo page (browser).
@@ -162,7 +163,7 @@
 <script>
 // In-browser stand-in for server.js so the UI can be demoed as a single static page.
 // Data lives in localStorage; "Reset demo" in the footer restores the mock season.
-(function () {
+window.RACE_MAKE_LOCAL_API = function () {
   var KEY = 'race-todo-demo-v1';
   var SEED = window.RACE_SEED;
   function ymd(d) { return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0'); }
@@ -265,13 +266,14 @@
     throw new Error('Not available in demo');
   }
 
-  window.RACE_DEMO_API = function (method, url, body) {
+  return function (method, url, body) {
     return new Promise(function (resolve, reject) {
       try { var out = handle(method, url, body); save(); resolve(JSON.parse(JSON.stringify(out))); }
       catch (e) { reject(e); }
     });
   };
-})();
+};
+if (!window.RACE_DEFER_BACKEND) window.RACE_DEMO_API = window.RACE_MAKE_LOCAL_API();
 
 </script>
 <script>
@@ -343,10 +345,11 @@ function render(){
   var tabs = [["dashboard","Dashboard"],["events","Events"],["template","Standard checklist"]];
   app.appendChild(h("header",{},[
     h("h1",{},"🏁 "+(S.title||"Race Event To-Do")),
-    h("nav",{}, tabs.map(function(t){ return h("button",{class: (S.view===t[0] || (S.view==="event"&&t[0]==="events")) ? "active":"", onclick:function(){ S.view=t[0]; S.eventId=null; location.hash=t[0]; render(); }}, t[1]); })),
+    h("nav",{}, tabs.map(function(t){ return h("button",{class: (S.view===t[0] || (S.view==="event"&&t[0]==="events")) ? "active":"", onclick:function(){ S.view=t[0]; S.eventId=null; location.hash=t[0]; render(); window.scrollTo(0,0); }}, t[1]); })),
     h("button",{class:"btn",onclick:openNewEvent},"+ New event"),
     S.passwordRequired ? h("button",{class:"btn ghost",onclick:function(){ api("POST","/api/logout").then(renderLogin); }},"Sign out") : null
   ]));
+  if (window.RACE_BACKEND_NOTE) app.appendChild(h("div",{class:"card",style:"padding:10px 14px;font-size:.85rem;color:var(--fg-2)"},"ℹ️ "+window.RACE_BACKEND_NOTE));
   var main = h("main");
   app.appendChild(main);
   if (S.view==="dashboard") renderDashboard(main);
@@ -498,7 +501,7 @@ function renderEvents(root){
 }
 
 // ---------- single event
-function openEvent(id){ if (S.eventId!==id && S.view!=="dashboard"){ S.catFilter=""; S.ownerFilter=""; S.filter="open"; } S.view="event"; S.eventId=id; location.hash="event/"+id; render(); window.scrollTo(0,0); }
+function openEvent(id){ if (S.eventId!==id && S.view!=="dashboard"){ S.catFilter=""; S.ownerFilter=""; S.filter="open"; } S.view="event"; S.eventId=id; location.hash="event-"+id; render(); window.scrollTo(0,0); }
 function renderEvent(root){
   var ev = S.data.events.find(function(e){return e.id===S.eventId;});
   if (!ev){ S.view="events"; return renderEvents(root); }
@@ -561,7 +564,7 @@ function renderTemplate(root){
       h("td",{},inp("title")), h("td",{style:"width:150px"},inp("category")),
       h("td",{style:"width:110px"},inp("offset_days",{type:"number"})),
       h("td",{style:"width:130px"},inp("owner")),
-      h("td",{style:"width:40px"},h("button",{class:"btn ghost",title:"Remove",onclick:function(){ if(confirm("Remove “"+t.title+"” from the standard checklist? (Existing events keep their copy.)")) api("DELETE","/api/template/"+t.id).then(load); }},"✕"))
+      h("td",{style:"width:40px"},h("button",{class:"btn ghost",title:"Remove",onclick:function(){ askConfirm("Remove “"+t.title+"” from the standard checklist? Existing events keep their copy.","Remove").then(function(ok){ if(ok) api("DELETE","/api/template/"+t.id).then(load).catch(function(e){toast(e.message);}); }); }},"✕"))
     ]));
   });
   var f = { title:h("input",{placeholder:"New standard task…"}), cat:h("input",{placeholder:"Category"}), off:h("input",{type:"number",placeholder:"-30"}), own:h("input",{placeholder:"Owner"}) };
@@ -577,6 +580,17 @@ function renderTemplate(root){
 
 // ---------- dialogs
 var dlg = document.getElementById("dlg");
+function askConfirm(msg, okLabel){
+  return new Promise(function(resolve){
+    var d = document.getElementById("dlg2"); d.innerHTML = "";
+    function done(v){ d.close(); resolve(v); }
+    d.appendChild(h("div",{},[h("p",{style:"margin:0 0 6px"},msg),
+      h("div",{class:"actions"},[h("button",{class:"btn secondary",type:"button",onclick:function(){done(false);}},"Cancel"),
+        h("button",{class:"btn danger",type:"button",onclick:function(){done(true);}},okLabel||"Delete")])]));
+    d.onclose = function(){ resolve(false); };
+    d.showModal();
+  });
+}
 function modal(title, fields, onSave, extra){
   dlg.innerHTML = "";
   var form = h("form",{method:"dialog",onsubmit:function(e){ e.preventDefault(); Promise.resolve(onSave()).then(function(ok){ if(ok!==false) dlg.close(); }).catch(function(err){ toast(err.message); }); }},
@@ -596,13 +610,13 @@ function openEditEvent(ev){
   var shift=h("input",{type:"checkbox"}); shift.checked=true;
   modal("Edit event",[["Event name",name],["Race date",date],["If the date changes, move open task due dates with it",shift],["Location",loc],["Notes",notes]], function(){
     return api("PATCH","/api/events/"+ev.id,{name:name.value,event_date:date.value,location:loc.value,notes:notes.value,shift_tasks:shift.checked}).then(function(){ toast("Saved"); return load(); });
-  }, h("button",{class:"btn danger",type:"button",onclick:function(){ if(confirm("Delete “"+ev.name+"” and all its tasks? This cannot be undone.")) api("DELETE","/api/events/"+ev.id).then(function(){ dlg.close(); S.view="events"; load(); }); }},"Delete"));
+  }, h("button",{class:"btn danger",type:"button",onclick:function(){ askConfirm("Delete “"+ev.name+"” and all its tasks? This cannot be undone.").then(function(ok){ if(ok) api("DELETE","/api/events/"+ev.id).then(function(){ dlg.close(); S.view="events"; location.hash="events"; load(); }).catch(function(e){toast(e.message);}); }); }},"Delete"));
 }
 function openTaskEditor(t){
   var title=h("input",{value:t.title}), due=h("input",{type:"date",value:t.due_date||""}), cat=h("input",{value:t.category}), owner=h("input",{value:t.owner}), notes=h("textarea",{rows:3}); notes.value=t.notes;
   modal("Edit task",[["Task",title],["Due date",due],["Category",cat],["Owner",owner],["Notes",notes]], function(){
     return api("PATCH","/api/tasks/"+t.id,{title:title.value,due_date:due.value,category:cat.value,owner:owner.value,notes:notes.value}).then(function(){ toast("Saved"); return load(); });
-  }, h("button",{class:"btn danger",type:"button",onclick:function(){ if(confirm("Delete this task?")) api("DELETE","/api/tasks/"+t.id).then(function(){ dlg.close(); load(); }); }},"Delete"));
+  }, h("button",{class:"btn danger",type:"button",onclick:function(){ askConfirm("Delete this task?").then(function(ok){ if(ok) api("DELETE","/api/tasks/"+t.id).then(function(){ dlg.close(); load(); }).catch(function(e){toast(e.message);}); }); }},"Delete"));
 }
 
 // ---------- login
@@ -618,13 +632,20 @@ function boot(){
   api("GET","/api/me").then(function(me){
     S.passwordRequired = me.passwordRequired; S.title = me.title; document.title = me.title || document.title;
     if (!me.authed) return renderLogin();
-    var m = location.hash.match(/^#event\/(\d+)/);
-    if (m){ S.view="event"; S.eventId=Number(m[1]); }
+    var m = location.hash.match(/^#event[-\/]([\w-]+)$/);
+    if (m){ S.view="event"; S.eventId = /^\d+$/.test(m[1]) ? Number(m[1]) : m[1]; }
     else if (/^#(events|template)$/.test(location.hash)) S.view=location.hash.slice(1);
     return load();
   });
 }
-boot();
+window.RACE_ON_REMOTE_CHANGE = function(){
+  if (!S.data) return;
+  var a = document.activeElement;
+  if (document.querySelector("dialog[open]") || (a && /^(INPUT|TEXTAREA|SELECT)$/.test(a.tagName) && app.contains(a))) return;
+  var y = window.scrollY; load().then(function(){ window.scrollTo(0,y); });
+};
+if (window.RACE_BACKEND_READY){ app.appendChild(h("div",{class:"empty",style:"padding:40px 0;text-align:center"},"Loading…")); window.RACE_BACKEND_READY.then(boot, boot); }
+else boot();
 </script>
 </body>
 </html>
